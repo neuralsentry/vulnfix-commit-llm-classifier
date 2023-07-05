@@ -11,6 +11,7 @@ from rich.console import RenderableType
 from rich.live import Live
 from rich.console import Group
 from rich.rule import Rule
+from rich.table import Table
 
 import torch
 import typer
@@ -141,7 +142,7 @@ def main(
                     url,
                     f"{data_dir}/{urlparse(url).netloc}{urlparse(url).path}",
                 )
-                task = task_progress.add_task(f"Cloning {url}")
+                task = task_progress.add_task(f"{url}", total=1)
                 futures[future] = (clone_task, task)
 
             pull_task = summary_progress.add_task(
@@ -153,12 +154,12 @@ def main(
                 for repo in repos:
                     future = executor.submit(repo.remotes.origin.pull)
                     repo_name = os.path.basename(repo.working_dir)
-                    task = task_progress.add_task(f"Pulling {repo_name}")
+                    task = task_progress.add_task(f"{repo_name}", total=1)
                     futures[future] = (pull_task, task)
             for future in as_completed(futures.keys()):
                 summary_task, spinner_task = futures[future]
-                task_progress.remove_task(spinner_task)
                 summary_progress.update(summary_task, advance=1)
+                task_progress.update(spinner_task, completed=1)
                 repo = future.result()
                 if isinstance(repo, Repo):
                     repos.append(repo)
@@ -177,13 +178,17 @@ def main(
         TextColumn("[progress.description]{task.description}"),
         TextColumn("[cyan]{task.completed}/{task.total} {task.fields[unit]}"),
     )
-    layout = Layout()
-    layout.split_column(
-        Layout(summary_progress, size=1),
-        Layout(task_progress),
-    )
 
-    with Live(layout):
+    print("[red]\nUsing the following configuration:")
+    print("GPU:", torch.cuda.get_device_name(0))
+    print("Batch Size:", batch_size)
+    print("Bugfix Threshold:", bugfix_threshold)
+
+    data = {}
+
+    print()
+    group = Group(summary_progress, task_progress)
+    with Live(group):
         commit_count = 0
         for repo in repos:
             commands = ["HEAD", "--count"]
@@ -192,6 +197,11 @@ def main(
             if before:
                 commands.extend(["--before", before])
             count = repo.git.rev_list(*commands)
+            data[os.path.basename(repo.working_dir)] = {
+                "bugfix": 0,
+                "non-bugfix": 0,
+                "total": count,
+            }
             commit_count += int(count)
 
         classification_task = summary_progress.add_task(
@@ -201,9 +211,10 @@ def main(
         write_header = True
         batch = []
         for repo in repos:
+            count = int(repo.git.rev_list(*commands))
             repo_task = task_progress.add_task(
                 f"{os.path.basename(repo.working_dir)}",
-                total=int(repo.git.rev_list(*commands)),
+                total=count,
                 unit="commits",
             )
 
@@ -224,12 +235,16 @@ def main(
                                 > bugfix_threshold
                             ):
                                 labels.append("bugfix")
+                                data[os.path.basename(repo.working_dir)]["bugfix"] += 1
                             else:
                                 labels.append("non-bugfix")
+                                data[os.path.basename(repo.working_dir)][
+                                    "non-bugfix"
+                                ] += 1
                         else:
-                            labels.append(
-                                model.model.config.id2label[pred.argmax().item()]
-                            )
+                            label = model.model.config.id2label[pred.argmax().item()]
+                            labels.append(label)
+                            data[os.path.basename(repo.working_dir)][label] += 1
 
                     df = pd.DataFrame(
                         {
@@ -288,10 +303,15 @@ def main(
                             > bugfix_threshold
                         ):
                             labels.append("bugfix")
+                            data[os.path.basename(repo.working_dir)]["bugfix"] += 1
                         else:
                             labels.append("non-bugfix")
+                            data[os.path.basename(repo.working_dir)]["non-bugfix"] += 1
                     else:
                         labels.append(model.model.config.id2label[pred.argmax().item()])
+                        data[os.path.basename(repo.working_dir)][
+                            model.model.config.id2label[pred.argmax().item()]
+                        ] += 1
 
                 df = pd.DataFrame(
                     {
@@ -336,6 +356,26 @@ def main(
                 summary_progress.update(classification_task, advance=len(batch))
                 task_progress.update(repo_task, advance=len(batch))
                 batch = []
+
+    table = Table(show_header=True, header_style="red")
+
+    table.add_column("Repository")
+    table.add_column("Bugfix", justify="right")
+    table.add_column("Non-bugfix", justify="right")
+    table.add_column("Total", justify="right")
+
+    for repo, values in data.items():
+        table.add_row(
+            repo,
+            str(values["bugfix"]),
+            str(values["non-bugfix"]),
+            str(values["total"]),
+        )
+
+    print()
+    print(table)
+    print("[green]\nDone!")
+    print(f"[green]Output saved to {output}")
 
 
 if __name__ == "__main__":
