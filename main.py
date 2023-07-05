@@ -16,6 +16,7 @@ import typer
 from git import Repo
 from tqdm import tqdm
 from rich import print
+from rich.layout import Layout
 from rich.progress import (
     track,
     Progress,
@@ -174,9 +175,13 @@ def main(
         TextColumn("[progress.description]{task.description}"),
         TextColumn("[cyan]{task.completed}/{task.total} {task.fields[unit]}"),
     )
-    group = Group(summary_progress, task_progress)
+    layout = Layout()
+    layout.split_column(
+        Layout(summary_progress, size=1),
+        Layout(task_progress),
+    )
 
-    with Live(group):
+    with Live(layout):
         commit_count = 0
         for repo in repos:
             commands = ["HEAD", "--count"]
