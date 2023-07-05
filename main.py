@@ -2,6 +2,7 @@ import os
 import re
 import time
 import random
+import warnings
 import pandas as pd
 from typing import Iterable
 from urllib.parse import urlparse
@@ -32,6 +33,7 @@ from datetime import datetime
 from transformers import AutoModelForSequenceClassification, AutoTokenizer
 from optimum.bettertransformer import BetterTransformer
 
+warnings.filterwarnings("ignore", category=UserWarning, module="optimum")
 
 cli = typer.Typer(add_completion=False)
 
