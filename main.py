@@ -25,6 +25,7 @@ from rich.progress import (
     TaskProgressColumn,
     TimeElapsedColumn,
     DownloadColumn,
+    TimeRemainingColumn,
 )
 from datetime import datetime
 from transformers import AutoModelForSequenceClassification, AutoTokenizer
@@ -166,6 +167,7 @@ def main(
         BarColumn(),
         TextColumn("[cyan]{task.completed}/{task.total} {task.fields[unit]}"),
         TimeElapsedColumn(),
+        TimeRemainingColumn(),
     )
     task_progress = Progress(
         SpinnerColumn(),
@@ -190,6 +192,7 @@ def main(
         )
 
         write_header = True
+        batch = []
         for repo in repos:
             repo_task = task_progress.add_task(
                 f"{os.path.basename(repo.working_dir)}",
@@ -198,7 +201,6 @@ def main(
             )
 
             commits = repo.iter_commits(after=after, before=before)
-            batch = []
 
             for commit in commits:
                 batch.append(commit)
@@ -255,11 +257,11 @@ def main(
                     extension = os.path.splitext(output)[-1]
 
                     if extension == ".csv":
-                        df.to_csv(output, mode="a", header=write_header)
+                        df.to_csv(output, mode="a", header=write_header, index=False)
                     elif extension == ".jsonl":
                         df.to_json(output, lines=True)
                     elif extension == ".xlsx":
-                        df.to_excel(output, mode="a", header=write_header)
+                        df.to_excel(output, mode="a", header=write_header, index=False)
 
                     write_header = False
                     summary_progress.update(classification_task, advance=len(batch))
