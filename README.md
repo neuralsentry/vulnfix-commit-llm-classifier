@@ -18,7 +18,12 @@ pip3 install torch torchvision torchaudio --index-url https://download.pytorch.o
 pip install -r requirements.txt
 
 # Run
-python main.py -i data/examples.txt --output data/output.csv --bugfix-threshold 0.95 --batch-size 32 --after "2023-01-01"
+python main.py `
+  -i data/examples.txt `
+  --output data/output.csv `
+  --bugfix-threshold 0.95 `
+  --batch-size 32 `
+  --after "2023-01-01"
 ```
 
 **Linux**
@@ -36,5 +41,10 @@ pip3 install torch torchvision torchaudio
 pip install -r requirements.txt
 
 # Run
-python main.py -i data/examples.txt --output data/output.csv --bugfix-threshold 0.95 --batch-size 32 --after "2023-01-01"
+python main.py \
+  -i data/examples.txt \
+  --output data/output.csv \
+  --bugfix-threshold 0.95 \
+  --batch-size 32 \
+  --after "2023-01-01"
 ```
