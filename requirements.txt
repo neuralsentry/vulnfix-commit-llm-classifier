@@ -1,7 +1,4 @@
 typer[all]
 transformers[torch]
 optimum
-pydantic
-fastapi
-uvicorn
 GitPython
