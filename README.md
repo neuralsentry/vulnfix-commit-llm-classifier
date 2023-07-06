@@ -15,10 +15,10 @@ venv\Scripts\activate
 # Install Pytorch
 # See: https://pytorch.org/get-started/locally/
 # For systems with NVIDIA GPUs:
-pip3 install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu118
+pip3 install torch --index-url https://download.pytorch.org/whl/cu118
 
 # For systems without NVIDIA GPUs:
-pip3 install torch torchvision torchaudio
+pip3 install torch
 
 # Install dependencies
 pip install -r requirements.txt
@@ -34,10 +34,10 @@ source venv/bin/activate
 # Install Pytorch
 # See: https://pytorch.org/get-started/locally/
 # For systems with NVIDIA GPUs:
-pip3 install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu118
+pip3 install torch --index-url https://download.pytorch.org/whl/cu118
 
 # For systems without NVIDIA GPUs:
-pip3 install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cpu
+pip3 install torch --index-url https://download.pytorch.org/whl/cpu
 
 # Install dependencies
 pip install -r requirements.txt
