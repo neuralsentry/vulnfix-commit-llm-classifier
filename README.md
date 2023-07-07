@@ -1,48 +1,31 @@
-![neuralsentry logo](.github/img/neuralsentry-full-dark.png)
+![NeuralSentry Logo](.github/img/neuralsentry-full-light.png)
 # commit-bugfix-classifier
-
+`commit-bugfix-classifier` is a tool that clones remote Git repositories, extracts commit information, and classifies commits using euralSentry's [bugfix classification model](https://huggingface.co/neuralsentry/starencoder-git-commit-bugfix-classification).
+![Demo Gif](.github/img/demo.gif)
 ## Installation
-*Requires installation of Python and pip as prerequisites*
-
-**Windows**
-
-
-```ps1
-# Optional (venv)
-python -m venv venv
-venv\Scripts\activate
-
-# Install Pytorch
-# See: https://pytorch.org/get-started/locally/
-# For systems with NVIDIA GPUs:
-pip3 install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu118
-
-# For systems without NVIDIA GPUs:
-pip3 install torch torchvision torchaudio
-
-# Install dependencies
-pip install -r requirements.txt
-```
-
-**Linux**
-
+*Python 3.11+ and pip is required*
 ```bash
 # Optional (venv)
-python -m venv venv
+python3 -m venv venv
 source venv/bin/activate
 
 # Install Pytorch
 # See: https://pytorch.org/get-started/locally/
 # For systems with NVIDIA GPUs:
-pip3 install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu118
+pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu118
 
 # For systems without NVIDIA GPUs:
-pip3 install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cpu
+pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cpu
 
 # Install dependencies
 pip install -r requirements.txt
 ```
 ## Usage
+### Built-in Help
+```bash
+python main.py --help
+```
+### Example
 **Windows**
 ```ps1
 python main.py `
