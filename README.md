@@ -1,10 +1,14 @@
-![NeuralSentry Logo](.github/img/neuralsentry-full-light.png)
-# commit-bugfix-classifier
+# ![NeuralSentry Logo](.github/img/neuralsentry-full-light.png)
+
+## commit-bugfix-classifier
+
 `commit-bugfix-classifier` is a tool that clones remote Git repositories, extracts commit information, and classifies commits using euralSentry's [bugfix classification model](https://huggingface.co/neuralsentry/starencoder-git-commit-bugfix-classification).
 ![Demo Gif](.github/img/demo.gif)
+
 ## Installation
-*Python 3.11+ and pip is required*
+
 ```bash
+# Python 3.11+ and pip is required!
 # Optional (venv)
 python3 -m venv venv
 source venv/bin/activate
@@ -20,13 +24,19 @@ pip3 install torch --index-url https://download.pytorch.org/whl/cpu
 # Install dependencies
 pip install -r requirements.txt
 ```
+
 ## Usage
+
 ### Built-in Help
+
 ```bash
 python main.py --help
 ```
-### Example
-**Windows**
+
+## Examples
+
+### Windows
+
 ```ps1
 python main.py `
   -i data/examples.txt `
@@ -36,7 +46,8 @@ python main.py `
   --after "2023-01-01"
 ```
 
-**Linux**
+### Linux
+
 ```bash
 python main.py \
   -i data/examples.txt \
