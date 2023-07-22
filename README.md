@@ -1,6 +1,7 @@
 ![NeuralSentry Logo](.github/img/neuralsentry-full-light.png)
 # commit-bugfix-classifier
 `commit-bugfix-classifier` is a tool that clones remote Git repositories, extracts commit information, and classifies commits using NeuralSentry's [bugfix classification model](https://huggingface.co/neuralsentry/starencoder-git-commit-bugfix-classification).
+
 ![Demo Gif](.github/img/demo.gif)
 ## Installation
 *Python 3.11+ and pip is required*
