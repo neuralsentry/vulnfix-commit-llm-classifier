@@ -168,6 +168,19 @@ def main(
         repos.extend(cloned_repos)
         repos.extend(pulled_repos)
 
+    print("[red]\nClassifying using the following configuration:")
+    if before:
+        print("Before:", before)
+    if after:
+        print("After:", after)
+    print("GPU/CPU:", torch.cuda.get_device_name(0))
+    print("Bugfix Threshold:", bugfix_threshold)
+    print("Non-bugfix Threshold:", non_bugfix_threshold)
+    print("Num Workers:", num_workers)
+    print("Batch Size:", batch_size)
+    print()
+
+
     model = Model(checkpoint, revision, hf_cache_dir)
 
     summary_progress = Progress(
@@ -183,20 +196,7 @@ def main(
         TextColumn("[cyan]{task.completed}/{task.total} {task.fields[unit]}"),
     )
 
-    print("[red]\nClassifying using the following configuration:")
-    print("GPU/CPU:", torch.cuda.get_device_name(0))
-    print("Num Workers:", num_workers)
-    print("Batch Size:", batch_size)
-    print("Bugfix Threshold:", bugfix_threshold)
-    print("Non-bugfix Threshold:", non_bugfix_threshold)
-    if before:
-        print("Before:", before)
-    if after:
-        print("After:", after)
-
     table_data = {}
-
-    print()
     group = Group(summary_progress, task_progress)
     with Live(group):
         commit_count = 0
