@@ -31,7 +31,14 @@ from rich.progress import (
     TimeRemainingColumn,
 )
 
-from utils import batch, read_file, get_repo_num_commits, read_lines
+from utils import (
+    batch,
+    read_file,
+    get_repo_num_commits,
+    read_lines,
+    clone_repos,
+    pull_repos,
+)
 from function_extraction import (
     get_hunk_headers_function,
     find_function,
@@ -97,8 +104,8 @@ def main(
     containing URLs.
     """
     # Process `--input`
-    urls = list(filter(lambda x: not os.path.exists(x), input))
-    paths = filter(lambda x: os.path.exists(x), input)
+    urls = [url for url in input if not os.path.exists(url)]
+    paths = [path for path in input if os.path.exists(path)]
     for path in paths:
         urls.extend(read_lines(path, strip=True))
     urls = [url.strip() for url in urls]
@@ -108,10 +115,8 @@ def main(
     github_repo_url_regex = (
         "^https?:\\/\\/(?:www\\.)?github\\.com\\/[a-zA-Z0-9-]+\\/[a-zA-Z0-9-]+$"
     )
-    invalid_urls = []
-    for url in urls:
-        if not re.match(github_repo_url_regex, url):
-            invalid_urls.append(url)
+    invalid_urls = [url for url in urls if not re.match(github_repo_url_regex, url)]
+
     if len(invalid_urls) > 0:
         print(
             "[red][!] Invalid GitHub repository URL(s):",
@@ -119,70 +124,49 @@ def main(
         )
         raise typer.Exit(code=1)
 
-    clone_urls = [
-        url
-        for url in urls
-        if not os.path.exists(
-            f"{data_dir.rstrip('/')}/{urlparse(url).netloc}{urlparse(url).path}"
-        )
+    parsed_urls = [urlparse(url) for url in urls]
+    repo_paths = [
+        f"{data_dir.rstrip('/')}/{url.netloc}{url.path}" for url in parsed_urls
     ]
-    existing_paths = [
-        f"{data_dir.rstrip('/')}/{urlparse(url).netloc}{urlparse(url).path}"
-        for url in urls
-        if os.path.exists(
-            f"{data_dir.rstrip('/')}/{urlparse(url).netloc}{urlparse(url).path}"
-        )
+
+    # Clone and/or pull repos
+    repo_urls_to_clone = [
+        url for url, path in zip(urls, repo_paths) if not os.path.exists(path)
     ]
-    repos = [Repo(path) for path in existing_paths]
+    repos_to_pull = [Repo(path) for path in repo_paths if os.path.exists(path)]
 
-    with ThreadPoolExecutor(max_workers=num_workers) as executor:
-        futures = {}
-        summary_progress = Progress(
-            TextColumn("[progress.description]{task.description}"),
-            BarColumn(),
-            TaskProgressColumn(),
-            TextColumn("[cyan]{task.completed}/{task.total} repos"),
-            TimeElapsedColumn(),
+    summary_progress = Progress(
+        TextColumn("[progress.description]{task.description}"),
+        BarColumn(),
+        TaskProgressColumn(),
+        TextColumn("[cyan]{task.completed}/{task.total} repos"),
+        TimeElapsedColumn(),
+    )
+    task_progress = Progress(
+        SpinnerColumn(),
+        TextColumn("[progress.description]{task.description}"),
+    )
+    group = Group(summary_progress, task_progress)
+
+    repos = []
+    with Live(group):
+        cloned_repos = clone_repos(
+            repo_urls_to_clone,
+            data_dir,
+            num_workers,
+            summary_progress=summary_progress,
+            task_progress=task_progress,
         )
-        task_progress = Progress(
-            SpinnerColumn(),
-            TextColumn("[progress.description]{task.description}"),
+
+        pulled_repos = pull_repos(
+            repos_to_pull,
+            num_workers,
+            summary_progress=summary_progress,
+            task_progress=task_progress,
         )
-        group = Group(summary_progress, task_progress)
 
-        with Live(group):
-            clone_task = summary_progress.add_task(
-                "[red]Downloading Repos...",
-                total=len(clone_urls),
-                visible=len(clone_urls) > 0,
-            )
-            for url in clone_urls:
-                future = executor.submit(
-                    Repo.clone_from,
-                    url,
-                    f"{data_dir}/{urlparse(url).netloc}{urlparse(url).path}",
-                )
-                task = task_progress.add_task(f"{url}", total=1)
-                futures[future] = (clone_task, task)
-
-            pull_task = summary_progress.add_task(
-                "[red]Pulling Repos...",
-                total=len(existing_paths),
-                visible=len(existing_paths) > 0 and not skip_pull,
-            )
-            if not skip_pull:
-                for repo in repos:
-                    future = executor.submit(repo.remotes.origin.pull)
-                    repo_name = os.path.basename(repo.working_dir)
-                    task = task_progress.add_task(f"{repo_name}", total=1)
-                    futures[future] = (pull_task, task)
-            for future in as_completed(futures.keys()):
-                summary_task, spinner_task = futures[future]
-                summary_progress.update(summary_task, advance=1)
-                task_progress.update(spinner_task, completed=1)
-                repo = future.result()
-                if isinstance(repo, Repo):
-                    repos.append(repo)
+        repos.extend(cloned_repos)
+        repos.extend(pulled_repos)
 
     model = Model(checkpoint, revision, hf_cache_dir)
 
