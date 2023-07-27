@@ -188,10 +188,16 @@ def main(
         TextColumn("[cyan]{task.completed}/{task.total} {task.fields[unit]}"),
     )
 
-    print("[red]\nUsing the following configuration:")
-    print("GPU:", torch.cuda.get_device_name(0))
+    print("[red]\nClassifying using the following configuration:")
+    print("GPU/CPU:", torch.cuda.get_device_name(0))
+    print("Num Workers:", num_workers)
     print("Batch Size:", batch_size)
     print("Bugfix Threshold:", bugfix_threshold)
+    print("Non-bugfix Threshold:", non_bugfix_threshold)
+    if before:
+        print("Before:", before)
+    if after:
+        print("After:", after)
 
     data = {}
 
