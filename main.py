@@ -123,14 +123,16 @@ def main(
         help="Directory to clone repositories to. Defaults to: `data/repositories`",
     ),
     checkpoint: str = typer.Option(
-        "neuralsentry/starencoder-git-commit-bugfix-classification",
-        help="Model checkpoint to use. Defaults to: `neuralsentry/starencoder-git-commit-bugfix-classification`",
+        "neuralsentry/starencoder-vulnfix-classification-balanced",
+        help="Model checkpoint to use. Defaults to: `neuralsentry/starencoder-vulnfix-classification-balanced`",
     ),
     revision: str = typer.Option(
         None,
         help="Revision of the model to use. Change this if you want to use a different model version than the latest.",
     ),
-    hf_cache_dir: str = typer.Option(None, help="HuggingFace cache directory. Defaults to your home directory."),
+    hf_cache_dir: str = typer.Option(
+        None, help="HuggingFace cache directory. Defaults to your home directory."
+    ),
     num_workers: int = typer.Option(
         4,
         "-w",
@@ -396,6 +398,13 @@ def main(
             str(values["outside-threshold"]),
             str(values["total"]),
         )
+    table.add_row(
+        "Total",
+        str(sum([values["bugfix"] for values in table_data.values()])),
+        str(sum([values["non-bugfix"] for values in table_data.values()])),
+        str(sum([values["outside-threshold"] for values in table_data.values()])),
+        str(sum([int(values["total"]) for values in table_data.values()])),
+    )
 
     print()
     print(table)
