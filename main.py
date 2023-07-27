@@ -85,17 +85,59 @@ def main(
         "-i",
         help="GitHub repository URL(s) or path to a file containing URLs.",
     ),
-    output: str = "output.csv",
-    bugfix_threshold: float = None,
-    non_bugfix_threshold: float = None,
-    batch_size: int = 64,
-    after: datetime = None,
-    before: datetime = None,
-    data_dir: str = "data/repositories",
-    checkpoint: str = "neuralsentry/starencoder-git-commit-bugfix-classification",
-    revision: str = None,
-    hf_cache_dir: str = None,
-    num_workers: int = 4,
+    output: str = typer.Option(
+        "output.csv",
+        "--output",
+        "-o",
+        help="Output file (.csv|.jsonl|.xlsx). Defaults to: `output.csv`",
+    ),
+    bugfix_threshold: float = typer.Option(
+        None,
+        min=0,
+        max=1,
+        help="If `--non-bugfix-threshold` is also set, values outside them will be classified as `outside-threshold`.",
+    ),
+    non_bugfix_threshold: float = typer.Option(
+        None,
+        min=0,
+        max=1,
+        help="If `--bugfix-threshold` is also set, values outside them will be classified as `outside-threshold`.",
+    ),
+    batch_size: int = typer.Option(
+        64,
+        "-b",
+        "--batch-size",
+        min=1,
+        help="Large size may be faster, but uses more memory. Defaults to: 64",
+    ),
+    after: datetime = typer.Option(
+        datetime(datetime.now().year, 1, 1),
+        help="Only classify commits after this date. Format: YYYY-MM-DD. Defaults to this year.",
+    ),
+    before: datetime = typer.Option(
+        None,
+        help="Only classify commits before this date. Format: YYYY-MM-DD.",
+    ),
+    data_dir: str = typer.Option(
+        "data/repositories",
+        help="Directory to clone repositories to. Defaults to: `data/repositories`",
+    ),
+    checkpoint: str = typer.Option(
+        "neuralsentry/starencoder-git-commit-bugfix-classification",
+        help="Model checkpoint to use. Defaults to: `neuralsentry/starencoder-git-commit-bugfix-classification`",
+    ),
+    revision: str = typer.Option(
+        None,
+        help="Revision of the model to use. Change this if you want to use a different model version than the latest.",
+    ),
+    hf_cache_dir: str = typer.Option(None, help="HuggingFace cache directory. Defaults to your home directory."),
+    num_workers: int = typer.Option(
+        4,
+        "-w",
+        "--num-workers",
+        min=1,
+        help="Number of workers to use for cpu-bound tasks. Defaults to: 4",
+    ),
 ):
     """
     Classify Git commit messasges given a Git repository URL or a file
@@ -177,7 +219,6 @@ def main(
     print("Num Workers:", num_workers)
     print("Batch Size:", batch_size)
     print()
-
 
     model = Model(checkpoint, revision, hf_cache_dir)
 
