@@ -3,6 +3,7 @@ import itertools
 
 import typer
 import pandas as pd
+from git import Repo
 
 
 def batch(iterable, size):
@@ -27,3 +28,15 @@ def read_file(path: str):
         case _:
             print(f"[!] File extension {extension} not supported")
             raise typer.Exit(1)
+
+
+def get_repo_num_commits(repo: Repo, before=None, after=None):
+    args = ["--count"]
+
+    if before:
+        args.append(f"--before={before}")
+    if after:
+        args.append(f"--after={after}")
+
+    args.append("HEAD")
+    return int(repo.git.rev_list(*args))

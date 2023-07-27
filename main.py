@@ -36,7 +36,7 @@ from function_extraction import (
     find_function,
     get_function_source,
 )
-from utils import batch, read_file
+from utils import batch, read_file, get_repo_num_commits
 
 warnings.filterwarnings("ignore", category=UserWarning, module="optimum")
 
@@ -229,10 +229,16 @@ def main(
             )
 
             commits = repo.iter_commits(after=after, before=before)
+            num_commits = get_repo_num_commits(repo, after=after, before=before)
 
-            for commit in commits:
+            for i, commit in enumerate(commits):
                 batch.append(commit)
-                if len(batch) == batch_size:
+
+                if len(batch) == batch_size or (
+                    # last batch
+                    i == num_commits - 1
+                    and len(batch) > 0
+                ):
                     inputs = model.tokenize([commit.message for commit in batch])
                     outputs = model(**inputs)
                     predictions = torch.softmax(outputs.logits, dim=-1)
@@ -329,96 +335,6 @@ def main(
                     task_progress.update(repo_task, advance=len(batch))
                     batch = []
 
-            if len(batch) > 0:
-                inputs = model.tokenize([commit.message for commit in batch])
-                outputs = model(**inputs)
-                predictions = torch.softmax(outputs.logits, dim=-1)
-
-                labels = []
-                for pred in predictions:
-                    bugfix_pred = pred[int(model.model.config.label2id["bugfix"])]
-                    non_bugfix_pred = pred[
-                        int(model.model.config.label2id["non-bugfix"])
-                    ]
-                    if bugfix_threshold and non_bugfix_threshold:
-                        if bugfix_pred >= bugfix_threshold:
-                            labels.append("bugfix")
-                            data[os.path.basename(repo.working_dir)]["bugfix"] += 1
-                        if non_bugfix_pred >= non_bugfix_threshold:
-                            labels.append("non-bugfix")
-                            data[os.path.basename(repo.working_dir)]["non-bugfix"] += 1
-                        # add outside-threshold count to data
-                        if (
-                            bugfix_pred < bugfix_threshold
-                            and non_bugfix_pred < non_bugfix_threshold
-                        ):
-                            labels.append("outside-threshold")
-                            data[os.path.basename(repo.working_dir)][
-                                "outside-threshold"
-                            ] += 1
-                    elif bugfix_threshold:
-                        if bugfix_pred >= bugfix_threshold:
-                            labels.append("bugfix")
-                            data[os.path.basename(repo.working_dir)]["bugfix"] += 1
-                        else:
-                            labels.append("non-bugfix")
-                            data[os.path.basename(repo.working_dir)]["non-bugfix"] += 1
-                    elif non_bugfix_threshold:
-                        if non_bugfix_pred >= non_bugfix_threshold:
-                            labels.append("non-bugfix")
-                            data[os.path.basename(repo.working_dir)]["non-bugfix"] += 1
-                        else:
-                            labels.append("bugfix")
-                            data[os.path.basename(repo.working_dir)]["bugfix"] += 1
-                    else:
-                        label = model.model.config.id2label[pred.argmax().item()]
-                        labels.append(label)
-                        data[os.path.basename(repo.working_dir)][label] += 1
-
-                df = pd.DataFrame(
-                    {
-                        "commit_msg": [commit.message for commit in batch],
-                        "sha": [commit.hexsha for commit in batch],
-                        "remote_url": [
-                            f"{commit.repo.remotes.origin.url}/commit/{commit.hexsha}"
-                            if "github" in commit.repo.remotes.origin.url
-                            else commit.repo.remotes.origin.url
-                            for commit in batch
-                        ],
-                        "date": [
-                            commit.authored_datetime.strftime("%Y-%m-%d %H:%M:%S")
-                            for commit in batch
-                        ],
-                        "labels": labels,
-                        "bugfix": [
-                            prediction[
-                                int(model.model.config.label2id["bugfix"])
-                            ].item()
-                            for prediction in predictions
-                        ],
-                        "non-bugfix": [
-                            prediction[
-                                int(model.model.config.label2id["non-bugfix"])
-                            ].item()
-                            for prediction in predictions
-                        ],
-                    }
-                )
-
-                extension = os.path.splitext(output)[-1]
-
-                if extension == ".csv":
-                    df.to_csv(output, mode="a", header=write_header, index=False)
-                elif extension == ".jsonl":
-                    df.to_json(output, lines=True)
-                elif extension == ".xlsx":
-                    df.to_excel(output, mode="a", header=write_header, index=False)
-
-                write_header = False
-                summary_progress.update(classification_task, advance=len(batch))
-                task_progress.update(repo_task, advance=len(batch))
-                batch = []
-
     table = Table(show_header=True, header_style="red")
 
     table.add_column("Repository")
@@ -441,12 +357,15 @@ def main(
     print("[green]\nDone!")
     print(f"[green]Output saved to {output}")
 
+
 @cli.command("extract")
 def extract_functions(
     input: str = typer.Option(..., "--input", "-i", help="Input file"),
     output: str = typer.Option(
         "data/functions.csv", "--output", "-o", help="Output file"
     ),
+    per_repo_vuln_max: int = (500,),
+    per_repo_non_vuln_max: int = (500,),
     batch_size: int = 64,
     assume_all_vulnerable: bool = True,
 ):
