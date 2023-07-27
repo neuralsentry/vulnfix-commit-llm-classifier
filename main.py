@@ -155,7 +155,7 @@ def main(
 
     # Validate `--input`
     github_repo_url_regex = (
-        "^https?:\\/\\/(?:www\\.)?github\\.com\\/[a-zA-Z0-9-]+\\/[a-zA-Z0-9-]+$"
+        "^https?:\\/\\/(?:www\\.)?github\\.com\\/[a-zA-Z0-9-_]+\\/[a-zA-Z0-9-_]+$"
     )
     invalid_urls = [url for url in urls if not re.match(github_repo_url_regex, url)]
 
