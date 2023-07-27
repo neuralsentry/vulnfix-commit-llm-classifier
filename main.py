@@ -36,7 +36,7 @@ from function_extraction import (
     find_function,
     get_function_source,
 )
-from utils import batch
+from utils import batch, read_file
 
 warnings.filterwarnings("ignore", category=UserWarning, module="optimum")
 
@@ -441,7 +441,6 @@ def main(
     print("[green]\nDone!")
     print(f"[green]Output saved to {output}")
 
-
 @cli.command("extract")
 def extract_functions(
     input: str = typer.Option(..., "--input", "-i", help="Input file"),
@@ -457,20 +456,7 @@ def extract_functions(
     **Must be run on `classify` output.**
     """
 
-    index = clang.cindex.Index.create()
-
-    input_extension = os.path.splitext(input)[-1]
-
-    match input_extension:
-        case ".csv":
-            df = pd.read_csv(input)
-        case ".jsonl":
-            df = pd.read_json(input, lines=True)
-        case ".xlsx":
-            df = pd.read_excel(input)
-        case _:
-            print("[!] Invalid input file extension.")
-            raise typer.Exit(code=1)
+    df = read_file(input)
 
     print("[red]\nExtracting functions from commits...")
 
@@ -493,6 +479,7 @@ def extract_functions(
         repo = repos[path]
         commits.append(repo.commit(row["sha"]))
 
+    index = clang.cindex.Index.create()
     num_functions = 0
     batch = []
     header = True
