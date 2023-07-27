@@ -1,38 +1,42 @@
 import os
 import re
-import time
-import random
 import warnings
-import pandas as pd
-from typing import Iterable
+from datetime import datetime
 from urllib.parse import urlparse
 from concurrent.futures import ThreadPoolExecutor, as_completed
-from rich.console import RenderableType
-from rich.live import Live
-from rich.console import Group
-from rich.rule import Rule
-from rich.table import Table
 
 import torch
 import typer
-from git import Repo
+import clang.cindex
+import pandas as pd
+from git import Repo, Commit, Diff
 from tqdm import tqdm
 from rich import print
+from rich.live import Live
+from rich.rule import Rule
+from typing import Iterable
+from rich.table import Table
 from rich.layout import Layout
+from rich.console import Group
+from rich.console import RenderableType
+from optimum.bettertransformer import BetterTransformer
+from transformers import AutoModelForSequenceClassification, AutoTokenizer
 from rich.progress import (
-    track,
     Progress,
     SpinnerColumn,
     TextColumn,
     BarColumn,
     TaskProgressColumn,
     TimeElapsedColumn,
-    DownloadColumn,
     TimeRemainingColumn,
 )
-from datetime import datetime
-from transformers import AutoModelForSequenceClassification, AutoTokenizer
-from optimum.bettertransformer import BetterTransformer
+
+from function_extraction import (
+    get_hunk_headers_function,
+    find_function,
+    get_function_source,
+)
+from utils import batch
 
 warnings.filterwarnings("ignore", category=UserWarning, module="optimum")
 
@@ -44,7 +48,11 @@ class Model:
         self.device = "cuda" if torch.cuda.is_available() else "cpu"
 
         model = AutoModelForSequenceClassification.from_pretrained(
-            checkpoint, revision=revision, cache_dir=cache_dir
+            checkpoint,
+            revision=revision,
+            cache_dir=cache_dir,
+            label2id={"non-bugfix": 0, "bugfix": 1},
+            id2label={0: "non-bugfix", 1: "bugfix"},
         )
         model.to(self.device)
         self.model = BetterTransformer.transform(model)
@@ -62,11 +70,12 @@ class Model:
         return self.model(*args, **kwargs)
 
 
-@cli.command("")
+@cli.command("classify")
 def main(
     input: list[str] = typer.Option(..., "--input", "-i", help="Input file or URL."),
     output: str = "output.csv",
     bugfix_threshold: float = None,
+    non_bugfix_threshold: float = None,
     batch_size: int = 64,
     after: datetime = None,
     before: datetime = None,
@@ -200,6 +209,7 @@ def main(
             data[os.path.basename(repo.working_dir)] = {
                 "bugfix": 0,
                 "non-bugfix": 0,
+                "outside-threshold": 0,
                 "total": count,
             }
             commit_count += int(count)
@@ -229,11 +239,30 @@ def main(
 
                     labels = []
                     for pred in predictions:
-                        if bugfix_threshold:
+                        bugfix_pred = pred[int(model.model.config.label2id["bugfix"])]
+                        non_bugfix_pred = pred[
+                            int(model.model.config.label2id["non-bugfix"])
+                        ]
+                        if bugfix_threshold and non_bugfix_threshold:
+                            if bugfix_pred >= bugfix_threshold:
+                                labels.append("bugfix")
+                                data[os.path.basename(repo.working_dir)]["bugfix"] += 1
+                            if non_bugfix_pred >= non_bugfix_threshold:
+                                labels.append("non-bugfix")
+                                data[os.path.basename(repo.working_dir)][
+                                    "non-bugfix"
+                                ] += 1
+                            # add outside-threshold count to data
                             if (
-                                pred[int(model.model.config.label2id["bugfix"])]
-                                > bugfix_threshold
+                                bugfix_pred < bugfix_threshold
+                                and non_bugfix_pred < non_bugfix_threshold
                             ):
+                                labels.append("outside-threshold")
+                                data[os.path.basename(repo.working_dir)][
+                                    "outside-threshold"
+                                ] += 1
+                        elif bugfix_threshold:
+                            if bugfix_pred >= bugfix_threshold:
                                 labels.append("bugfix")
                                 data[os.path.basename(repo.working_dir)]["bugfix"] += 1
                             else:
@@ -241,6 +270,15 @@ def main(
                                 data[os.path.basename(repo.working_dir)][
                                     "non-bugfix"
                                 ] += 1
+                        elif non_bugfix_threshold:
+                            if non_bugfix_pred >= non_bugfix_threshold:
+                                labels.append("non-bugfix")
+                                data[os.path.basename(repo.working_dir)][
+                                    "non-bugfix"
+                                ] += 1
+                            else:
+                                labels.append("bugfix")
+                                data[os.path.basename(repo.working_dir)]["bugfix"] += 1
                         else:
                             label = model.model.config.id2label[pred.argmax().item()]
                             labels.append(label)
@@ -248,6 +286,7 @@ def main(
 
                     df = pd.DataFrame(
                         {
+                            "is_merge": [len(commit.parents) > 1 for commit in batch],
                             "commit_msg": [commit.message for commit in batch],
                             "sha": [commit.hexsha for commit in batch],
                             "remote_url": [
@@ -260,7 +299,7 @@ def main(
                                 commit.authored_datetime.strftime("%Y-%m-%d %H:%M:%S")
                                 for commit in batch
                             ],
-                            "label": labels,
+                            "labels": labels,
                             "bugfix": [
                                 prediction[
                                     int(model.model.config.label2id["bugfix"])
@@ -297,21 +336,44 @@ def main(
 
                 labels = []
                 for pred in predictions:
-                    if bugfix_threshold:
+                    bugfix_pred = pred[int(model.model.config.label2id["bugfix"])]
+                    non_bugfix_pred = pred[
+                        int(model.model.config.label2id["non-bugfix"])
+                    ]
+                    if bugfix_threshold and non_bugfix_threshold:
+                        if bugfix_pred >= bugfix_threshold:
+                            labels.append("bugfix")
+                            data[os.path.basename(repo.working_dir)]["bugfix"] += 1
+                        if non_bugfix_pred >= non_bugfix_threshold:
+                            labels.append("non-bugfix")
+                            data[os.path.basename(repo.working_dir)]["non-bugfix"] += 1
+                        # add outside-threshold count to data
                         if (
-                            pred[int(model.model.config.label2id["bugfix"])]
-                            > bugfix_threshold
+                            bugfix_pred < bugfix_threshold
+                            and non_bugfix_pred < non_bugfix_threshold
                         ):
+                            labels.append("outside-threshold")
+                            data[os.path.basename(repo.working_dir)][
+                                "outside-threshold"
+                            ] += 1
+                    elif bugfix_threshold:
+                        if bugfix_pred >= bugfix_threshold:
                             labels.append("bugfix")
                             data[os.path.basename(repo.working_dir)]["bugfix"] += 1
                         else:
                             labels.append("non-bugfix")
                             data[os.path.basename(repo.working_dir)]["non-bugfix"] += 1
+                    elif non_bugfix_threshold:
+                        if non_bugfix_pred >= non_bugfix_threshold:
+                            labels.append("non-bugfix")
+                            data[os.path.basename(repo.working_dir)]["non-bugfix"] += 1
+                        else:
+                            labels.append("bugfix")
+                            data[os.path.basename(repo.working_dir)]["bugfix"] += 1
                     else:
-                        labels.append(model.model.config.id2label[pred.argmax().item()])
-                        data[os.path.basename(repo.working_dir)][
-                            model.model.config.id2label[pred.argmax().item()]
-                        ] += 1
+                        label = model.model.config.id2label[pred.argmax().item()]
+                        labels.append(label)
+                        data[os.path.basename(repo.working_dir)][label] += 1
 
                 df = pd.DataFrame(
                     {
@@ -327,7 +389,7 @@ def main(
                             commit.authored_datetime.strftime("%Y-%m-%d %H:%M:%S")
                             for commit in batch
                         ],
-                        "label": labels,
+                        "labels": labels,
                         "bugfix": [
                             prediction[
                                 int(model.model.config.label2id["bugfix"])
@@ -362,6 +424,7 @@ def main(
     table.add_column("Repository")
     table.add_column("Bugfix", justify="right")
     table.add_column("Non-bugfix", justify="right")
+    table.add_column("Outside Threshold", justify="right")
     table.add_column("Total", justify="right")
 
     for repo, values in data.items():
@@ -369,6 +432,7 @@ def main(
             repo,
             str(values["bugfix"]),
             str(values["non-bugfix"]),
+            str(values["outside-threshold"]),
             str(values["total"]),
         )
 
@@ -376,6 +440,166 @@ def main(
     print(table)
     print("[green]\nDone!")
     print(f"[green]Output saved to {output}")
+
+
+@cli.command("extract")
+def extract_functions(
+    input: str = typer.Option(..., "--input", "-i", help="Input file"),
+    output: str = typer.Option(
+        "data/functions.csv", "--output", "-o", help="Output file"
+    ),
+    batch_size: int = 64,
+    assume_all_vulnerable: bool = True,
+):
+    """
+    Extract functions from classified commits.
+
+    **Must be run on `classify` output.**
+    """
+
+    index = clang.cindex.Index.create()
+
+    input_extension = os.path.splitext(input)[-1]
+
+    match input_extension:
+        case ".csv":
+            df = pd.read_csv(input)
+        case ".jsonl":
+            df = pd.read_json(input, lines=True)
+        case ".xlsx":
+            df = pd.read_excel(input)
+        case _:
+            print("[!] Invalid input file extension.")
+            raise typer.Exit(code=1)
+
+    print("[red]\nExtracting functions from commits...")
+
+    df = df[df["is_merge"] == "False"]
+    df = df[~df["labels"].str.contains("outside-threshold")]
+
+    urls = [urlparse(url) for url in df["remote_url"]]
+    paths = [
+        f"data/repositories/{url.netloc}/{'/'.join(url.path.split('/')[1:3])}"
+        for url in urls
+    ]
+    df["path"] = paths
+    repos = {}
+    commits: list[Commit] = []
+    for i, row in df.iterrows():
+        path = row["path"]
+        if repos.get(path) is None:
+            repos[path] = Repo(path)
+
+        repo = repos[path]
+        commits.append(repo.commit(row["sha"]))
+
+    num_functions = 0
+    batch = []
+    header = True
+    for i, commit in enumerate(tqdm(commits)):
+        batch.append(commit)
+
+        if len(batch) == batch_size or (i + 1 == len(commits) and len(batch) > 0):
+            results = []
+            for i, commit in enumerate(batch):
+                label = df.iloc[i]["labels"]
+                parent_commit = commit.parents[0]
+                diff_items = parent_commit.diff(commit, create_patch=True)
+
+                diffs: list[Diff] = [
+                    diff
+                    for diff in diff_items.iter_change_type("M")
+                    if diff.a_path.endswith(".c")
+                ]
+
+                if len(diffs) == 0:
+                    continue
+
+                if assume_all_vulnerable is False:
+                    print("[!] Not implemented yet.")
+                    raise typer.Exit(code=1)
+
+                if not len(diffs) == 1:
+                    continue
+
+                for diff in diffs:
+                    symbols = get_hunk_headers_function(diff)
+                    if len(symbols) == 0:
+                        print(
+                            f"[!] No function headers found in diff {commit.repo.remotes[0].url}/commit{commit.hexsha}"
+                        )
+                        continue
+
+                    for symbol in symbols:
+                        function_name = re.search(r"(\w+)\(", symbol)
+
+                        if function_name is None:
+                            print(
+                                f"[!] Failed to regex function name {symbol} in {commit.repo.remotes[0].url}/commit/{commit.hexsha}"
+                            )
+                            continue
+
+                        function_name = function_name.group(1)
+                        if label == "bugfix":
+                            path = diff.a_path
+                            try:
+                                code = commit.repo.git.show(f"{commit.hexsha}:{path}")
+                            except:
+                                print(
+                                    f"[!][yellow] Failed to get code for {commit.repo.remotes[0].url}/commit/{commit.hexsha}/{path}"
+                                )
+                        elif label == "non-bugfix":
+                            path = diff.b_path
+                            try:
+                                code = commit.repo.git.show(f"{commit.hexsha}:{path}")
+                            except:
+                                print(
+                                    f"[!][yellow] Failed to get code for {parent_commit.repo.remotes[0].url}/commit/{parent_commit.hexsha}/{path}"
+                                )
+                                continue
+                        else:
+                            print(f"[red][!] Invalid label {label}")
+                        temp_file = "data/temp.c"
+                        with open(temp_file, "w", encoding="utf-8") as file:
+                            file.write(code)
+
+                        translation_unit = index.parse(temp_file)
+
+                        function = find_function(translation_unit.cursor, function_name)
+
+                        if function is None:
+                            print(
+                                f"[yellow][!] Failed to find function {function_name} in {commit.repo.remotes[0].url}/commit/{commit.hexsha}"
+                            )
+                            continue
+                        else:
+                            num_functions += 1
+                            print(
+                                f"[+] Found ({num_functions}) {df.iloc[i]['labels']} function {function_name} in {commit.repo.remotes[0].url}/commit/{commit.hexsha}"
+                            )
+
+                        results.append(
+                            {
+                                "commit_msg": commit.message,
+                                "commit_hash": commit.hexsha,
+                                "repo_url": commit.repo.remotes[0].url,
+                                "commit_url": f"{commit.repo.remotes[0].url}/commit/{commit.hexsha}",
+                                "labels": df.iloc[i]["labels"],
+                                "function": get_function_source(temp_file, function),
+                            }
+                        )
+
+            if len(results) > 0:
+                results_df = pd.DataFrame(results)
+                results_df.to_csv(
+                    output,
+                    mode="a",
+                    index=False,
+                    header=header,
+                )
+                header = False
+
+            batch = []
 
 
 if __name__ == "__main__":
