@@ -91,13 +91,11 @@ def main(
     batch_size: int = 64,
     after: datetime = None,
     before: datetime = None,
-    sample: bool = False,
     data_dir: str = "data/repositories",
     checkpoint: str = "neuralsentry/starencoder-git-commit-bugfix-classification",
     revision: str = None,
     hf_cache_dir: str = None,
     num_workers: int = 4,
-    skip_pull: bool = False,
 ):
     """
     Classify Git commit messasges given a Git repository URL or a file
