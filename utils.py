@@ -86,6 +86,7 @@ def clone_repos(
             summary_task, spinner_task = futures[future]
             summary_progress.update(summary_task, advance=1)
             task_progress.update(spinner_task, completed=1)
+            task_progress.remove_task(spinner_task)
             repo = future.result()
             if isinstance(repo, Repo):
                 repos.append(repo)
@@ -117,6 +118,7 @@ def pull_repos(
             summary_task, spinner_task = futures[future]
             summary_progress.update(summary_task, advance=1)
             task_progress.update(spinner_task, completed=1)
+            task_progress.remove_task(spinner_task)
             repo = future.result()
             if isinstance(repo, Repo):
                 repos.append(repo)

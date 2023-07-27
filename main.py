@@ -381,6 +381,7 @@ def main(
                     summary_progress.update(classification_task, advance=len(batch))
                     task_progress.update(repo_task, advance=len(batch))
                     batch = []
+            task_progress.remove_task(repo_task)
 
     table = Table(show_header=True, header_style="red")
 
