@@ -40,3 +40,12 @@ def get_repo_num_commits(repo: Repo, before=None, after=None):
 
     args.append("HEAD")
     return int(repo.git.rev_list(*args))
+
+
+def read_lines(path: str, strip=False):
+    lines = []
+    with open(path, "r") as f:
+        lines = f.readlines()
+        if strip:
+            lines = [line.strip() for line in lines]
+    return lines

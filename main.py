@@ -9,7 +9,6 @@ import torch
 import typer
 import clang.cindex
 import pandas as pd
-from git import Repo, Commit, Diff
 from tqdm import tqdm
 from rich import print
 from rich.live import Live
@@ -18,6 +17,7 @@ from typing import Iterable
 from rich.table import Table
 from rich.layout import Layout
 from rich.console import Group
+from git import Repo, Commit, Diff
 from rich.console import RenderableType
 from optimum.bettertransformer import BetterTransformer
 from transformers import AutoModelForSequenceClassification, AutoTokenizer
@@ -31,12 +31,12 @@ from rich.progress import (
     TimeRemainingColumn,
 )
 
+from utils import batch, read_file, get_repo_num_commits, read_lines
 from function_extraction import (
     get_hunk_headers_function,
     find_function,
     get_function_source,
 )
-from utils import batch, read_file, get_repo_num_commits
 
 warnings.filterwarnings("ignore", category=UserWarning, module="optimum")
 
@@ -72,7 +72,12 @@ class Model:
 
 @cli.command("classify")
 def main(
-    input: list[str] = typer.Option(..., "--input", "-i", help="Input file or URL."),
+    input: list[str] = typer.Option(
+        ...,
+        "--input",
+        "-i",
+        help="GitHub repository URL(s) or path to a file containing URLs.",
+    ),
     output: str = "output.csv",
     bugfix_threshold: float = None,
     non_bugfix_threshold: float = None,
@@ -91,21 +96,27 @@ def main(
     Classify Git commit messasges given a Git repository URL or a file
     containing URLs.
     """
-    urls = []
-    for e in input:
-        if os.path.exists(e):
-            with open(e, "r") as f:
-                urls.extend([line.strip() for line in f.readlines()])
-        else:
-            urls.append(e.strip())
+    # Process `--input`
+    urls = list(filter(lambda x: not os.path.exists(x), input))
+    paths = filter(lambda x: os.path.exists(x), input)
+    for path in paths:
+        urls.extend(read_lines(path, strip=True))
+    urls = [url.strip() for url in urls]
+    urls = list(set(urls))
 
-    url_regex = "^https?:\\/\\/(?:www\\.)?[-a-zA-Z0-9@:%._\\+~#=]{1,256}\\.[a-zA-Z0-9()]{1,6}\\b(?:[-a-zA-Z0-9()@:%_\\+.~#?&\\/=]*)$"
+    # Validate `--input`
+    github_repo_url_regex = (
+        "^https?:\\/\\/(?:www\\.)?github\\.com\\/[a-zA-Z0-9-]+\\/[a-zA-Z0-9-]+$"
+    )
     invalid_urls = []
     for url in urls:
-        if not re.match(url_regex, url):
+        if not re.match(github_repo_url_regex, url):
             invalid_urls.append(url)
     if len(invalid_urls) > 0:
-        print("[!] Invalid URLs:", invalid_urls)
+        print(
+            "[red][!] Invalid GitHub repository URL(s):",
+            ", ".join(invalid_urls),
+        )
         raise typer.Exit(code=1)
 
     clone_urls = [
