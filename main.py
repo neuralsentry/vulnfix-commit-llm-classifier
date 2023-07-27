@@ -199,7 +199,7 @@ def main(
     if after:
         print("After:", after)
 
-    data = {}
+    table_data = {}
 
     print()
     group = Group(summary_progress, task_progress)
@@ -212,7 +212,7 @@ def main(
             if before:
                 commands.extend(["--before", before])
             count = repo.git.rev_list(*commands)
-            data[os.path.basename(repo.working_dir)] = {
+            table_data[os.path.basename(repo.working_dir)] = {
                 "bugfix": 0,
                 "non-bugfix": 0,
                 "outside-threshold": 0,
@@ -258,43 +258,48 @@ def main(
                         if bugfix_threshold and non_bugfix_threshold:
                             if bugfix_pred >= bugfix_threshold:
                                 labels.append("bugfix")
-                                data[os.path.basename(repo.working_dir)]["bugfix"] += 1
+                                table_data[os.path.basename(repo.working_dir)][
+                                    "bugfix"
+                                ] += 1
                             if non_bugfix_pred >= non_bugfix_threshold:
                                 labels.append("non-bugfix")
-                                data[os.path.basename(repo.working_dir)][
+                                table_data[os.path.basename(repo.working_dir)][
                                     "non-bugfix"
                                 ] += 1
-                            # add outside-threshold count to data
                             if (
                                 bugfix_pred < bugfix_threshold
                                 and non_bugfix_pred < non_bugfix_threshold
                             ):
                                 labels.append("outside-threshold")
-                                data[os.path.basename(repo.working_dir)][
+                                table_data[os.path.basename(repo.working_dir)][
                                     "outside-threshold"
                                 ] += 1
                         elif bugfix_threshold:
                             if bugfix_pred >= bugfix_threshold:
                                 labels.append("bugfix")
-                                data[os.path.basename(repo.working_dir)]["bugfix"] += 1
+                                table_data[os.path.basename(repo.working_dir)][
+                                    "bugfix"
+                                ] += 1
                             else:
                                 labels.append("non-bugfix")
-                                data[os.path.basename(repo.working_dir)][
+                                table_data[os.path.basename(repo.working_dir)][
                                     "non-bugfix"
                                 ] += 1
                         elif non_bugfix_threshold:
                             if non_bugfix_pred >= non_bugfix_threshold:
                                 labels.append("non-bugfix")
-                                data[os.path.basename(repo.working_dir)][
+                                table_data[os.path.basename(repo.working_dir)][
                                     "non-bugfix"
                                 ] += 1
                             else:
                                 labels.append("bugfix")
-                                data[os.path.basename(repo.working_dir)]["bugfix"] += 1
+                                table_data[os.path.basename(repo.working_dir)][
+                                    "bugfix"
+                                ] += 1
                         else:
                             label = model.model.config.id2label[pred.argmax().item()]
                             labels.append(label)
-                            data[os.path.basename(repo.working_dir)][label] += 1
+                            table_data[os.path.basename(repo.working_dir)][label] += 1
 
                     df = pd.DataFrame(
                         {
@@ -349,7 +354,7 @@ def main(
     table.add_column("Outside Threshold", justify="right")
     table.add_column("Total", justify="right")
 
-    for repo, values in data.items():
+    for repo, values in table_data.items():
         table.add_row(
             repo,
             str(values["bugfix"]),
