@@ -58,8 +58,6 @@ class Model:
             checkpoint,
             revision=revision,
             cache_dir=cache_dir,
-            label2id={"non-bugfix": 0, "bugfix": 1},
-            id2label={0: "non-bugfix", 1: "bugfix"},
         )
         model.to(self.device)
         self.model = BetterTransformer.transform(model)
@@ -91,17 +89,17 @@ def main(
         "-o",
         help="Output file (.csv|.jsonl|.xlsx). Defaults to: `output.csv`",
     ),
-    bugfix_threshold: float = typer.Option(
+    vulnfix_threshold: float = typer.Option(
         None,
         min=0,
         max=1,
-        help="If `--non-bugfix-threshold` is also set, values outside them will be classified as `outside-threshold`.",
+        help="If `--non-vulnfix-threshold` is also set, values outside them will be classified as `outside-threshold`.",
     ),
-    non_bugfix_threshold: float = typer.Option(
+    non_vulnfix_threshold: float = typer.Option(
         None,
         min=0,
         max=1,
-        help="If `--bugfix-threshold` is also set, values outside them will be classified as `outside-threshold`.",
+        help="If `--vulnfix-threshold` is also set, values outside them will be classified as `outside-threshold`.",
     ),
     batch_size: int = typer.Option(
         64,
@@ -216,8 +214,8 @@ def main(
     if after:
         print("After:", after)
     print("GPU/CPU:", torch.cuda.get_device_name(0))
-    print("Bugfix Threshold:", bugfix_threshold)
-    print("Non-bugfix Threshold:", non_bugfix_threshold)
+    print("Vulnfix Threshold:", vulnfix_threshold)
+    print("Non-vulnfix Threshold:", non_vulnfix_threshold)
     print("Num Workers:", num_workers)
     print("Batch Size:", batch_size)
     print()
@@ -249,9 +247,9 @@ def main(
                 commands.extend(["--before", before])
             count = repo.git.rev_list(*commands)
             table_data[os.path.basename(repo.working_dir)] = {
-                "bugfix": 0,
-                "non-bugfix": 0,
-                "outside-threshold": 0,
+                "vulnfix": 0,
+                "non-vulnfix": 0,
+                "undetermined": 0,
                 "total": count,
             }
             commit_count += int(count)
@@ -287,50 +285,48 @@ def main(
 
                     labels = []
                     for pred in predictions:
-                        bugfix_pred = pred[int(model.model.config.label2id["bugfix"])]
-                        non_bugfix_pred = pred[
-                            int(model.model.config.label2id["non-bugfix"])
-                        ]
-                        if bugfix_threshold and non_bugfix_threshold:
-                            if bugfix_pred >= bugfix_threshold:
-                                labels.append("bugfix")
+                        vulnfix_pred = pred[1]
+                        non_vulnfix_pred = pred[0]
+                        if vulnfix_threshold and non_vulnfix_threshold:
+                            if vulnfix_pred >= vulnfix_threshold:
+                                labels.append("vulnfix")
                                 table_data[os.path.basename(repo.working_dir)][
-                                    "bugfix"
+                                    "vulnfix"
                                 ] += 1
-                            if non_bugfix_pred >= non_bugfix_threshold:
-                                labels.append("non-bugfix")
+                            if non_vulnfix_pred >= non_vulnfix_threshold:
+                                labels.append("non-vulnfix")
                                 table_data[os.path.basename(repo.working_dir)][
-                                    "non-bugfix"
+                                    "non-vulnfix"
                                 ] += 1
                             if (
-                                bugfix_pred < bugfix_threshold
-                                and non_bugfix_pred < non_bugfix_threshold
+                                vulnfix_pred < vulnfix_threshold
+                                and non_vulnfix_pred < non_vulnfix_threshold
                             ):
-                                labels.append("outside-threshold")
+                                labels.append("undetermined")
                                 table_data[os.path.basename(repo.working_dir)][
-                                    "outside-threshold"
+                                    "undetermined"
                                 ] += 1
-                        elif bugfix_threshold:
-                            if bugfix_pred >= bugfix_threshold:
-                                labels.append("bugfix")
+                        elif vulnfix_threshold:
+                            if vulnfix_pred >= vulnfix_threshold:
+                                labels.append("vulnfix")
                                 table_data[os.path.basename(repo.working_dir)][
-                                    "bugfix"
-                                ] += 1
-                            else:
-                                labels.append("non-bugfix")
-                                table_data[os.path.basename(repo.working_dir)][
-                                    "non-bugfix"
-                                ] += 1
-                        elif non_bugfix_threshold:
-                            if non_bugfix_pred >= non_bugfix_threshold:
-                                labels.append("non-bugfix")
-                                table_data[os.path.basename(repo.working_dir)][
-                                    "non-bugfix"
+                                    "vulnfix"
                                 ] += 1
                             else:
-                                labels.append("bugfix")
+                                labels.append("non-vulnfix")
                                 table_data[os.path.basename(repo.working_dir)][
-                                    "bugfix"
+                                    "non-vulnfix"
+                                ] += 1
+                        elif non_vulnfix_threshold:
+                            if non_vulnfix_pred >= non_vulnfix_threshold:
+                                labels.append("non-vulnfix")
+                                table_data[os.path.basename(repo.working_dir)][
+                                    "non-vulnfix"
+                                ] += 1
+                            else:
+                                labels.append("vulnfix")
+                                table_data[os.path.basename(repo.working_dir)][
+                                    "vulnfix"
                                 ] += 1
                         else:
                             label = model.model.config.id2label[pred.argmax().item()]
@@ -353,17 +349,11 @@ def main(
                                 for commit in batch
                             ],
                             "labels": labels,
-                            "bugfix": [
-                                prediction[
-                                    int(model.model.config.label2id["bugfix"])
-                                ].item()
-                                for prediction in predictions
+                            "vulnfix": [
+                                prediction[1].item() for prediction in predictions
                             ],
-                            "non-bugfix": [
-                                prediction[
-                                    int(model.model.config.label2id["non-bugfix"])
-                                ].item()
-                                for prediction in predictions
+                            "non-vulnfix": [
+                                prediction[0].item() for prediction in predictions
                             ],
                         }
                     )
@@ -386,24 +376,24 @@ def main(
     table = Table(show_header=True, header_style="red")
 
     table.add_column("Repository")
-    table.add_column("Bugfix", justify="right")
-    table.add_column("Non-bugfix", justify="right")
-    table.add_column("Outside Threshold", justify="right")
+    table.add_column("Vulnfix", justify="right")
+    table.add_column("Non-vulnfix", justify="right")
+    table.add_column("Undetermined", justify="right")
     table.add_column("Total", justify="right")
 
     for repo, values in table_data.items():
         table.add_row(
             repo,
-            str(values["bugfix"]),
-            str(values["non-bugfix"]),
-            str(values["outside-threshold"]),
+            str(values["vulnfix"]),
+            str(values["non-vulnfix"]),
+            str(values["undetermined"]),
             str(values["total"]),
         )
     table.add_row(
         "Total",
-        str(sum([values["bugfix"] for values in table_data.values()])),
-        str(sum([values["non-bugfix"] for values in table_data.values()])),
-        str(sum([values["outside-threshold"] for values in table_data.values()])),
+        str(sum([values["vulnfix"] for values in table_data.values()])),
+        str(sum([values["non-vulnfix"] for values in table_data.values()])),
+        str(sum([values["undetermined"] for values in table_data.values()])),
         str(sum([int(values["total"]) for values in table_data.values()])),
     )
 
@@ -501,7 +491,7 @@ def extract_functions(
                             continue
 
                         function_name = function_name.group(1)
-                        if label == "bugfix":
+                        if label == "vulnfix":
                             path = diff.a_path
                             try:
                                 code = commit.repo.git.show(f"{commit.hexsha}:{path}")
@@ -509,7 +499,7 @@ def extract_functions(
                                 print(
                                     f"[!][yellow] Failed to get code for {commit.repo.remotes[0].url}/commit/{commit.hexsha}/{path}"
                                 )
-                        elif label == "non-bugfix":
+                        elif label == "non-vulnfix":
                             path = diff.b_path
                             try:
                                 code = commit.repo.git.show(f"{commit.hexsha}:{path}")
