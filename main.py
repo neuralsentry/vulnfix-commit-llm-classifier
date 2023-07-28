@@ -87,7 +87,7 @@ def main(
         "output.csv",
         "--output",
         "-o",
-        help="Output file (.csv|.jsonl|.xlsx). Defaults to: `output.csv`",
+        help="Output file (.csv|.jsonl|.xlsx).",
     ),
     vulnfix_threshold: float = typer.Option(
         None,
@@ -106,11 +106,11 @@ def main(
         "-b",
         "--batch-size",
         min=1,
-        help="Large size may be faster, but uses more memory. Defaults to: 64",
+        help="Large size may be faster, but uses more memory.",
     ),
     after: datetime = typer.Option(
         datetime(datetime.now().year, 1, 1),
-        help="Only classify commits after this date. Format: YYYY-MM-DD. Defaults to this year.",
+        help="Only classify commits after this date. Format: YYYY-MM-DD.",
     ),
     before: datetime = typer.Option(
         None,
@@ -118,11 +118,11 @@ def main(
     ),
     data_dir: str = typer.Option(
         "data/repositories",
-        help="Directory to clone repositories to. Defaults to: `data/repositories`",
+        help="Directory to clone repositories to.",
     ),
     checkpoint: str = typer.Option(
         "neuralsentry/starencoder-vulnfix-classification-balanced",
-        help="Model checkpoint to use. Defaults to: `neuralsentry/starencoder-vulnfix-classification-balanced`",
+        help="Model checkpoint to use.",
     ),
     revision: str = typer.Option(
         None,
@@ -136,7 +136,7 @@ def main(
         "-w",
         "--num-workers",
         min=1,
-        help="Number of workers to use for cpu-bound tasks. Defaults to: 4",
+        help="Number of workers to use for cpu-bound tasks.",
     ),
 ):
     """
