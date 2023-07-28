@@ -337,12 +337,9 @@ def main(
                         {
                             "is_merge": [len(commit.parents) > 1 for commit in batch],
                             "commit_msg": [commit.message for commit in batch],
-                            "sha": [commit.hexsha for commit in batch],
-                            "remote_url": [
-                                f"{commit.repo.remotes.origin.url}/commit/{commit.hexsha}"
-                                if "github" in commit.repo.remotes.origin.url
-                                else commit.repo.remotes.origin.url
-                                for commit in batch
+                            "commit_hash": [commit.hexsha for commit in batch],
+                            "repo_url": [
+                                commit.repo.remotes.origin.url for commit in batch
                             ],
                             "date": [
                                 commit.authored_datetime.strftime("%Y-%m-%d %H:%M:%S")
@@ -357,6 +354,8 @@ def main(
                             ],
                         }
                     )
+                    df.insert(4, "commit_url", "")
+                    df["commit_url"] = df["repo_url"] + "/commit/" + df["commit_hash"]
 
                     extension = os.path.splitext(output)[-1]
 
