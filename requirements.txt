@@ -2,3 +2,5 @@ typer[all]
 transformers[torch]
 optimum
 GitPython
+clang
+libclang
