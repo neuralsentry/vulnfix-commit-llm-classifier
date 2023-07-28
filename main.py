@@ -404,14 +404,28 @@ def main(
 
 @cli.command("extract")
 def extract_functions(
-    input: str = typer.Option(..., "--input", "-i", help="Input file"),
+    input: str = typer.Option(
+        ..., "--input", "-i", help="Path to classified commits file (using `classify`)."
+    ),
     output: str = typer.Option(
         "data/functions.csv", "--output", "-o", help="Output file"
     ),
-    per_repo_vuln_max: int = (500,),
-    per_repo_non_vuln_max: int = (500,),
+    vulnfix_threshold: float = typer.Option(
+        None, help="If not specified, this command will look at the `labels` column"
+    ),
+    non_vulnfix_threshold: float = typer.Option(
+        None, help="If not specified, this command will look at the `labels` column"
+    ),
+    per_repo_vuln_max: int = typer.Option(
+        500, help="Max number of vulnfix functions per repo."
+    ),
+    per_repo_non_vuln_max: int = typer.Option(
+        500, help="Max number of non-vulnfix functions per repo."
+    ),
     batch_size: int = 64,
-    assume_all_vulnerable: bool = True,
+    assume_all_vulnerable: bool = typer.Option(
+        True, help="If disabled, will only extract commits with one function modified"
+    ),
 ):
     """
     Extract functions from classified commits.
