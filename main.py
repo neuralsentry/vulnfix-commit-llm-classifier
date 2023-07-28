@@ -329,7 +329,11 @@ def main(
                                     "vulnfix"
                                 ] += 1
                         else:
-                            label = model.model.config.id2label[pred.argmax().item()]
+                            label = (
+                                "vulnfix"
+                                if pred.argmax().item() == 1
+                                else "non-vulnfix"
+                            )
                             labels.append(label)
                             table_data[os.path.basename(repo.working_dir)][label] += 1
 
@@ -426,136 +430,137 @@ def extract_functions(
     assume_all_vulnerable: bool = typer.Option(
         True, help="If disabled, will only extract commits with one function modified"
     ),
+    include_file: bool = typer.Option(
+        False, help="If enabled, will include the file code in the output"
+    ),
 ):
     """
     Extract functions from classified commits.
 
     **Must be run on `classify` output.**
     """
+    if (vulnfix_threshold and not non_vulnfix_threshold) or (
+        non_vulnfix_threshold and not vulnfix_threshold
+    ):
+        print(
+            "[!] Must specify both `--vulnfix-threshold` and `--non-vulnfix-threshold`"
+        )
+        raise typer.Exit(code=1)
 
     df = read_file(input)
 
-    print("[red]\nExtracting functions from commits...")
+    repo_urls = df["repo_url"].unique().tolist()
+    parsed_urls = [urlparse(url) for url in repo_urls]
+    repo_paths = [f"data/repositories/{url.netloc}{url.path}" for url in parsed_urls]
 
-    df = df[df["is_merge"] == "False"]
-    df = df[~df["labels"].str.contains("outside-threshold")]
+    repos = {url: Repo(path) for url, path in zip(repo_urls, repo_paths)}
 
-    urls = [urlparse(url) for url in df["remote_url"]]
-    paths = [
-        f"data/repositories/{url.netloc}/{'/'.join(url.path.split('/')[1:3])}"
-        for url in urls
-    ]
-    df["path"] = paths
-    repos = {}
-    commits: list[Commit] = []
-    for i, row in df.iterrows():
-        path = row["path"]
-        if repos.get(path) is None:
-            repos[path] = Repo(path)
+    summary_progress = Progress(
+        TextColumn("[progress.description]{task.description}"),
+        BarColumn(),
+        TextColumn("[cyan]{task.completed}/{task.total} {task.fields[unit]}"),
+        TimeElapsedColumn(),
+        TimeRemainingColumn(),
+    )
+    task_progress = Progress(
+        SpinnerColumn(),
+        TextColumn("[progress.description]{task.description}"),
+        TextColumn("[cyan]{task.completed}/{task.total} {task.fields[unit]}"),
+    )
+    counter = Progress(
+        TextColumn("[progress.description]{task.description}"),
+        TextColumn("[cyan]({task.completed}/{task.total} {task.fields[unit]})"),
+    )
+    counter_without_total = Progress(
+        TextColumn("[progress.description]{task.description}"),
+        TextColumn("[cyan]({task.completed} {task.fields[unit]})"),
+    )
 
-        repo = repos[path]
-        commits.append(repo.commit(row["sha"]))
+    table_data = {}
+    group = Group(summary_progress, counter, counter_without_total, task_progress)
 
-    index = clang.cindex.Index.create()
-    num_functions = 0
-    batch = []
-    header = True
-    for i, commit in enumerate(tqdm(commits)):
-        batch.append(commit)
+    df = df[df["is_merge"] == False]
+    with Live(group):
+        for repo in repos.values():
+            table_data[os.path.basename(repo.working_dir)] = {
+                "vuln": 0,
+                "non-vuln": 0,
+            }
 
-        if len(batch) == batch_size or (i + 1 == len(commits) and len(batch) > 0):
-            results = []
-            for i, commit in enumerate(batch):
-                label = df.iloc[i]["labels"]
-                parent_commit = commit.parents[0]
-                diff_items = parent_commit.diff(commit, create_patch=True)
+        extraction_task = summary_progress.add_task(
+            "[red]Extracting Functions...", total=len(df), unit="commits"
+        )
+        extracted_commits_count = counter.add_task(
+            f"[+] Extracted commits",
+            total=len(df),
+            unit="commits",
+        )
+        outside_threshold_count = counter.add_task(
+            f"[-] Ignored commits outside threshold",
+            total=len(df),
+            visible=False,
+            unit="commits",
+        )
+        no_c_diffs_count = counter.add_task(
+            f"[-] Ignored commits without C/C++ changes",
+            total=len(df),
+            visible=False,
+            unit="commits",
+        )
+        more_than_one_function_count = counter.add_task(
+            f"[-] Ignored commits modifying more than one function",
+            total=len(df),
+            visible=False,
+            unit="commits",
+        )
+        no_functions_found_count = counter.add_task(
+            f"[-] Ignored commits with no functions found",
+            total=len(df),
+            visible=False,
+            unit="commits",
+        )
+        extracted_vuln_functions_count = counter.add_task(
+            f"[+] Extracted functions (vuln)",
+            total=0,
+            visible=False,
+            unit="functions",
+        )
+        extracted_non_vuln_functions_count = counter.add_task(
+            f"[+] Extracted functions (non-vuln)",
+            total=0,
+            visible=False,
+            unit="functions",
+        )
+        failed_extract_functions_count = counter.add_task(
+            f"[-] Failed to extract functions",
+            total=0,
+            visible=False,
+            unit="functions",
+        )
+        ignore_functions_from_max_vuln_count = counter.add_task(
+            f"[-] Ignored functions from max vuln",
+            total=0,
+            visible=False,
+            unit="functions",
+        )
+        ignore_functions_from_max_non_vuln_count = counter.add_task(
+            f"[-] Ignored functions from max non-vuln",
+            total=0,
+            visible=False,
+            unit="functions",
+        )
 
-                diffs: list[Diff] = [
-                    diff
-                    for diff in diff_items.iter_change_type("M")
-                    if diff.a_path.endswith(".c")
-                ]
+        index = clang.cindex.Index.create()
+        batch = pd.DataFrame()
+        header = True
+        for i, row in df.iterrows():
+            if len(batch) >= batch_size or (i + 1 == len(df) and len(batch) > 0):
+                functions_df = pd.DataFrame(batch)
 
-                if len(diffs) == 0:
-                    continue
+                if not include_file:
+                    functions_df = functions_df.drop(columns=["file_code"])
 
-                if assume_all_vulnerable is False:
-                    print("[!] Not implemented yet.")
-                    raise typer.Exit(code=1)
-
-                if not len(diffs) == 1:
-                    continue
-
-                for diff in diffs:
-                    symbols = get_hunk_headers_function(diff)
-                    if len(symbols) == 0:
-                        print(
-                            f"[!] No function headers found in diff {commit.repo.remotes[0].url}/commit{commit.hexsha}"
-                        )
-                        continue
-
-                    for symbol in symbols:
-                        function_name = re.search(r"(\w+)\(", symbol)
-
-                        if function_name is None:
-                            print(
-                                f"[!] Failed to regex function name {symbol} in {commit.repo.remotes[0].url}/commit/{commit.hexsha}"
-                            )
-                            continue
-
-                        function_name = function_name.group(1)
-                        if label == "vulnfix":
-                            path = diff.a_path
-                            try:
-                                code = commit.repo.git.show(f"{commit.hexsha}:{path}")
-                            except:
-                                print(
-                                    f"[!][yellow] Failed to get code for {commit.repo.remotes[0].url}/commit/{commit.hexsha}/{path}"
-                                )
-                        elif label == "non-vulnfix":
-                            path = diff.b_path
-                            try:
-                                code = commit.repo.git.show(f"{commit.hexsha}:{path}")
-                            except:
-                                print(
-                                    f"[!][yellow] Failed to get code for {parent_commit.repo.remotes[0].url}/commit/{parent_commit.hexsha}/{path}"
-                                )
-                                continue
-                        else:
-                            print(f"[red][!] Invalid label {label}")
-                        temp_file = "data/temp.c"
-                        with open(temp_file, "w", encoding="utf-8") as file:
-                            file.write(code)
-
-                        translation_unit = index.parse(temp_file)
-
-                        function = find_function(translation_unit.cursor, function_name)
-
-                        if function is None:
-                            print(
-                                f"[yellow][!] Failed to find function {function_name} in {commit.repo.remotes[0].url}/commit/{commit.hexsha}"
-                            )
-                            continue
-                        else:
-                            num_functions += 1
-                            print(
-                                f"[+] Found ({num_functions}) {df.iloc[i]['labels']} function {function_name} in {commit.repo.remotes[0].url}/commit/{commit.hexsha}"
-                            )
-
-                        results.append(
-                            {
-                                "commit_msg": commit.message,
-                                "commit_hash": commit.hexsha,
-                                "repo_url": commit.repo.remotes[0].url,
-                                "commit_url": f"{commit.repo.remotes[0].url}/commit/{commit.hexsha}",
-                                "labels": df.iloc[i]["labels"],
-                                "function": get_function_source(temp_file, function),
-                            }
-                        )
-
-            if len(results) > 0:
-                results_df = pd.DataFrame(results)
-                results_df.to_csv(
+                functions_df.to_csv(
                     output,
                     mode="a",
                     index=False,
@@ -563,7 +568,183 @@ def extract_functions(
                 )
                 header = False
 
-            batch = []
+                batch = pd.DataFrame()
+
+            repo_name = os.path.basename(repo.working_dir)
+            repo = repos[row["repo_url"]]
+            commit = repo.commit(row["commit_hash"])
+
+            label = ""
+
+            # Determine label
+            if vulnfix_threshold and non_vulnfix_threshold:
+                preds = [row["non-vulnfix"], row["vulnfix"]]
+
+                if preds[0] >= non_vulnfix_threshold:
+                    label = "non-vuln"
+                elif preds[1] >= vulnfix_threshold:
+                    label = "vuln"
+                # ignore commits outside thresholds
+                else:
+                    counter.update(outside_threshold_count, advance=1, visible=True)
+                    summary_progress.update(extraction_task, advance=1)
+                    continue
+            else:
+                print(
+                    "[!] Not implemented yet. Must specify both `--vulnfix-threshold` and `--non-vulnfix-threshold`"
+                )
+                raise typer.Exit(code=1)
+
+            num_vuln_functions = table_data[repo_name]["vuln"]
+            num_non_vuln_functions = table_data[repo_name]["non-vuln"]
+
+            if label == "vuln" and num_vuln_functions >= per_repo_vuln_max:
+                counter.update(
+                    ignore_functions_from_max_vuln_count, advance=1, visible=True
+                )
+                summary_progress.update(extraction_task, advance=1)
+                continue
+            elif (
+                label == "non-vuln" and num_non_vuln_functions >= per_repo_non_vuln_max
+            ):
+                counter.update(
+                    ignore_functions_from_max_non_vuln_count, advance=1, visible=True
+                )
+                summary_progress.update(extraction_task, advance=1)
+                continue
+
+            parent_commit = commit.parents[0]
+            diffs = parent_commit.diff(commit, create_patch=True)
+            diffs = [
+                diff
+                for diff in diffs.iter_change_type("M")
+                if (diff.a_path.endswith(".c") or diff.a_path.endswith(".cpp"))
+            ]
+
+            if len(diffs) == 0:
+                counter.update(no_c_diffs_count, advance=1, visible=True)
+                summary_progress.update(extraction_task, advance=1)
+                continue
+
+            # extract function symbols
+            functions = []
+            # functions_df = pd.DataFrame(columns=["code", "symbol", "name", "path", "label"])
+            for diff in diffs:
+                if label == "vuln":
+                    path = diff.a_path
+                    code = parent_commit.repo.git.show(f"{parent_commit.hexsha}:{path}")
+                elif label == "non-vuln":
+                    path = diff.b_path
+                    code = commit.repo.git.show(f"{commit.hexsha}:{path}")
+                else:
+                    print("[!] Why isn't the labelled defined 🤔 (BUG!).")
+                    raise typer.Exit(code=1)
+
+                symbols = get_hunk_headers_function(diff)
+                if len(symbols) == 0:
+                    continue
+
+                for symbol in symbols:
+                    function_name = re.search(r"(\w+)\(", symbol)
+                    if function_name:
+                        functions.append(
+                            {
+                                "labels": label,
+                                "vuln": row["vulnfix"],
+                                "non-vuln": row["non-vulnfix"],
+                                "function_symbol": symbol,
+                                "function_name": function_name.group(1),
+                                "function_code": None,
+                                "file_path": path,
+                                "file_code": code,
+                                "repo_url": row["repo_url"],
+                                "commit_msg": row["commit_msg"],
+                                "commit_hash": row["commit_hash"],
+                                "commit_url": row["commit_url"],
+                                "file_url": row["repo_url"]
+                                + "/blob/"
+                                + row["commit_hash"]
+                                + "/"
+                                + path,
+                                "date": row["date"],
+                            }
+                        )
+
+            if not assume_all_vulnerable and not len(functions) == 1:
+                counter.update(more_than_one_function_count, advance=1, visible=True)
+                summary_progress.update(extraction_task, advance=1)
+                continue
+
+            if len(functions) == 0:
+                counter.update(no_functions_found_count, advance=1, visible=True)
+                summary_progress.update(extraction_task, advance=1)
+                continue
+
+            # extract function source
+            extracted_functions = []
+            for function in functions:
+                with open("data/temp.c", "w", encoding="utf-8") as file:
+                    file.write(function["file_code"])
+
+                translation_unit = index.parse("data/temp.c")
+                function_cursor = find_function(
+                    translation_unit.cursor, function["function_name"]
+                )
+
+                if function_cursor is None:
+                    counter.update(
+                        failed_extract_functions_count, advance=1, visible=True
+                    )
+                    continue
+
+                function["function_code"] = get_function_source(
+                    "data/temp.c", function_cursor
+                )
+                extracted_functions.append(function)
+
+            counter.update(extracted_commits_count, advance=1)
+
+            if label == "vuln":
+                counter.update(
+                    extracted_vuln_functions_count,
+                    advance=len(extracted_functions),
+                    visible=True,
+                )
+                table_data[repo_name]["vuln"] += len(extracted_functions)
+
+            elif label == "non-vuln":
+                counter.update(
+                    extracted_non_vuln_functions_count,
+                    advance=len(extracted_functions),
+                    visible=True,
+                )
+                table_data[repo_name]["non-vuln"] += len(extracted_functions)
+
+            batch = pd.concat([batch, pd.DataFrame(extracted_functions)])
+            summary_progress.update(extraction_task, advance=1)
+
+    table = Table(show_header=True, header_style="red")
+
+    table.add_column("Repository")
+    table.add_column("Vuln", justify="right")
+    table.add_column("Non-vuln", justify="right")
+
+    for repo, values in table_data.items():
+        table.add_row(
+            repo,
+            str(values["vuln"]),
+            str(values["non-vuln"]),
+        )
+    table.add_row(
+        "Total",
+        str(sum([values["vuln"] for values in table_data.values()])),
+        str(sum([values["non-vuln"] for values in table_data.values()])),
+    )
+
+    print()
+    print(table)
+    print("[green]\nDone!")
+    print(f"[green]Output saved to {output}")
 
 
 if __name__ == "__main__":
