@@ -535,13 +535,13 @@ def extract_functions(
             f"[-] Ignored commits (max vuln per repo)",
             total=len(df),
             visible=False,
-            unit="functions",
+            unit="commits",
         )
         ignored_commits_from_max_non_vuln_per_repo_count = counter.add_task(
             f"[-] Ignored commits (max non-vuln per repo)",
             total=len(df),
             visible=False,
-            unit="functions",
+            unit="commits",
         )
         num_repos = df["repo_url"].nunique()
         extracted_vuln_functions_count = counter.add_task(
