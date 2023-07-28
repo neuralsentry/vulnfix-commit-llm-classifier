@@ -699,8 +699,14 @@ def extract_functions(
             # extract function source
             extracted_functions = []
             for function in functions:
-                with open("data/temp.c", "w", encoding="latin-1") as file:
-                    file.write(function["file_code"])
+                try:
+                    with open("data/temp.c", "w", encoding="utf-8") as file:
+                        file.write(function["file_code"])
+                except:
+                    counter.update(
+                        failed_extract_functions_count, advance=1, visible=True
+                    )
+                    continue
 
                 translation_unit = index.parse("data/temp.c")
                 function_cursor = find_function(
@@ -713,9 +719,15 @@ def extract_functions(
                     )
                     continue
 
-                function["function_code"] = get_function_source(
-                    "data/temp.c", function_cursor
-                )
+                try:
+                    function_code = get_function_source("data/temp.c", function_cursor)
+                except:
+                    counter.update(
+                        failed_extract_functions_count, advance=1, visible=True
+                    )
+                    continue
+
+                function["function_code"] = function_code
                 extracted_functions.append(function)
 
             counter.update(extracted_commits_count, advance=1)

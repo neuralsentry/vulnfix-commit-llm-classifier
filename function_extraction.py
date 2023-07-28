@@ -10,7 +10,11 @@ def get_hunk_headers_function(diff: Diff):
     # if the hunk header has no function, don't include it
 
     # read the diff
-    diff_text = diff.diff.decode("latin-1")
+    try:
+        diff_text = diff.diff.decode("utf-8")
+    except:
+        return []
+
     # split the diff into lines
     diff_lines = diff_text.split("\n")
 
@@ -57,8 +61,9 @@ def get_function_source(file_path, function):
     end_line = function.extent.end.line
 
     # with open(file_path, "r") as file:
-    with open(file_path, "r", encoding="latin-1") as file:
-        lines = file.readlines()
+    with open(file_path, "r", encoding="utf-8") as file:
+            lines = file.readlines()
+
 
     # Extract the function's source code
     function_source = "".join(lines[start_line - 1 : end_line])
