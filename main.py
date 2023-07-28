@@ -519,6 +519,18 @@ def extract_functions(
             visible=False,
             unit="commits",
         )
+        ignored_commits_from_max_vuln_per_repo_count = counter.add_task(
+            f"[-] Ignored commits (max vuln per repo)",
+            total=len(df),
+            visible=False,
+            unit="functions",
+        )
+        ignored_commits_from_max_non_vuln_per_repo_count = counter.add_task(
+            f"[-] Ignored commits (max non-vuln per repo)",
+            total=len(df),
+            visible=False,
+            unit="functions",
+        )
         extracted_vuln_functions_count = counter.add_task(
             f"[+] Extracted functions (vuln)",
             total=0,
@@ -533,18 +545,6 @@ def extract_functions(
         )
         failed_extract_functions_count = counter.add_task(
             f"[-] Failed to extract functions",
-            total=0,
-            visible=False,
-            unit="functions",
-        )
-        ignore_functions_from_max_vuln_count = counter.add_task(
-            f"[-] Ignored functions from max vuln",
-            total=0,
-            visible=False,
-            unit="functions",
-        )
-        ignore_functions_from_max_non_vuln_count = counter.add_task(
-            f"[-] Ignored functions from max non-vuln",
             total=0,
             visible=False,
             unit="functions",
@@ -600,7 +600,7 @@ def extract_functions(
 
             if label == "vuln" and num_vuln_functions >= per_repo_vuln_max:
                 counter.update(
-                    ignore_functions_from_max_vuln_count, advance=1, visible=True
+                    ignored_commits_from_max_vuln_per_repo_count, advance=1, visible=True
                 )
                 summary_progress.update(extraction_task, advance=1)
                 continue
@@ -608,7 +608,7 @@ def extract_functions(
                 label == "non-vuln" and num_non_vuln_functions >= per_repo_non_vuln_max
             ):
                 counter.update(
-                    ignore_functions_from_max_non_vuln_count, advance=1, visible=True
+                    ignored_commits_from_max_non_vuln_per_repo_count, advance=1, visible=True
                 )
                 summary_progress.update(extraction_task, advance=1)
                 continue
