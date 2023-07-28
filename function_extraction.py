@@ -57,7 +57,7 @@ def get_function_source(file_path, function):
     end_line = function.extent.end.line
 
     # with open(file_path, "r") as file:
-    with open(file_path, "r", encoding="utf-8") as file:
+    with open(file_path, "r", encoding="latin-1") as file:
         lines = file.readlines()
 
     # Extract the function's source code
