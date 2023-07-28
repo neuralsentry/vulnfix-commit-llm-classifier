@@ -421,10 +421,10 @@ def extract_functions(
         None, help="If not specified, this command will look at the `labels` column"
     ),
     per_repo_vuln_max: int = typer.Option(
-        500, help="Max number of vulnfix functions per repo."
+        None, help="Max number of vulnfix functions per repo."
     ),
     per_repo_non_vuln_max: int = typer.Option(
-        500, help="Max number of non-vulnfix functions per repo."
+        None, help="Max number of non-vulnfix functions per repo."
     ),
     batch_size: int = 64,
     assume_all_vulnerable: bool = typer.Option(
@@ -543,15 +543,18 @@ def extract_functions(
             visible=False,
             unit="functions",
         )
+        num_repos = df["repo_url"].nunique()
         extracted_vuln_functions_count = counter.add_task(
             f"[+] Extracted functions (vuln)",
-            total=0,
+            total=0 if per_repo_vuln_max is None else per_repo_vuln_max * num_repos,
             visible=False,
             unit="functions",
         )
         extracted_non_vuln_functions_count = counter.add_task(
             f"[+] Extracted functions (non-vuln)",
-            total=0,
+            total=0
+            if per_repo_non_vuln_max is None
+            else per_repo_non_vuln_max * num_repos,
             visible=False,
             unit="functions",
         )
@@ -610,7 +613,11 @@ def extract_functions(
             num_vuln_functions = table_data[repo_name]["vuln"]
             num_non_vuln_functions = table_data[repo_name]["non-vuln"]
 
-            if label == "vuln" and num_vuln_functions >= per_repo_vuln_max:
+            if (
+                per_repo_vuln_max
+                and label == "vuln"
+                and num_vuln_functions >= per_repo_vuln_max
+            ):
                 counter.update(
                     ignored_commits_from_max_vuln_per_repo_count,
                     advance=1,
@@ -618,8 +625,10 @@ def extract_functions(
                 )
                 summary_progress.update(extraction_task, advance=1)
                 continue
-            elif (
-                label == "non-vuln" and num_non_vuln_functions >= per_repo_non_vuln_max
+            if (
+                per_repo_non_vuln_max
+                and label == "non-vuln"
+                and num_non_vuln_functions >= per_repo_non_vuln_max
             ):
                 counter.update(
                     ignored_commits_from_max_non_vuln_per_repo_count,
