@@ -433,6 +433,15 @@ def extract_functions(
     include_file: bool = typer.Option(
         False, help="If enabled, will include the file code in the output"
     ),
+    shuffle: bool = typer.Option(
+        False, help="If enabled, will shuffle the commits before extracting functions"
+    ),
+    seed: int = typer.Option(
+        42, help="Seed to use for shuffling. Only used if `--shuffle` is enabled."
+    ),
+    resume: bool = typer.Option(
+        False, help="If enabled, will resume from the last extracted commit"
+    ),
 ):
     """
     Extract functions from classified commits.
@@ -480,6 +489,9 @@ def extract_functions(
     group = Group(summary_progress, counter, counter_without_total, task_progress)
 
     df = df[df["is_merge"] == False]
+    if shuffle:
+        df = df.sample(frac=1, random_state=seed)
+
     with Live(group):
         for repo in repos.values():
             table_data[os.path.basename(repo.working_dir)] = {
@@ -600,7 +612,9 @@ def extract_functions(
 
             if label == "vuln" and num_vuln_functions >= per_repo_vuln_max:
                 counter.update(
-                    ignored_commits_from_max_vuln_per_repo_count, advance=1, visible=True
+                    ignored_commits_from_max_vuln_per_repo_count,
+                    advance=1,
+                    visible=True,
                 )
                 summary_progress.update(extraction_task, advance=1)
                 continue
@@ -608,7 +622,9 @@ def extract_functions(
                 label == "non-vuln" and num_non_vuln_functions >= per_repo_non_vuln_max
             ):
                 counter.update(
-                    ignored_commits_from_max_non_vuln_per_repo_count, advance=1, visible=True
+                    ignored_commits_from_max_non_vuln_per_repo_count,
+                    advance=1,
+                    visible=True,
                 )
                 summary_progress.update(extraction_task, advance=1)
                 continue
@@ -683,7 +699,7 @@ def extract_functions(
             # extract function source
             extracted_functions = []
             for function in functions:
-                with open("data/temp.c", "w", encoding="utf-8") as file:
+                with open("data/temp.c", "w", encoding="latin-1") as file:
                     file.write(function["file_code"])
 
                 translation_unit = index.parse("data/temp.c")
