@@ -585,8 +585,8 @@ def extract_functions(
 
                 batch = pd.DataFrame()
 
-            repo_name = os.path.basename(repo.working_dir)
             repo = repos[row["repo_url"]]
+            repo_name = os.path.basename(repo.working_dir)
             commit = repo.commit(row["commit_hash"])
 
             label = ""
@@ -653,7 +653,6 @@ def extract_functions(
 
             # extract function symbols
             functions = []
-            # functions_df = pd.DataFrame(columns=["code", "symbol", "name", "path", "label"])
             for diff in diffs:
                 if label == "vuln":
                     path = diff.a_path
