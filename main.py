@@ -638,7 +638,12 @@ def extract_functions(
                 summary_progress.update(extraction_task, advance=1)
                 continue
 
-            parent_commit = commit.parents[0]
+            parent_commit = commit.parents[0] if len(commit.parents) > 0 else None
+
+            if parent_commit is None:
+                summary_progress.update(extraction_task, advance=1)
+                continue
+
             diffs = parent_commit.diff(commit, create_patch=True)
             diffs = [
                 diff
@@ -716,7 +721,14 @@ def extract_functions(
                     )
                     continue
 
-                translation_unit = index.parse("data/temp.c")
+                try:
+                    translation_unit = index.parse("data/temp.c")
+                except:
+                    counter.update(
+                        failed_extract_functions_count, advance=1, visible=True
+                    )
+                    continue
+
                 function_cursor = find_function(
                     translation_unit.cursor, function["function_name"]
                 )
