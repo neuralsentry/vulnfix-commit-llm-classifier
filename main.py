@@ -684,7 +684,10 @@ def extract_functions(
             functions = []
             for method in methods:
                 if label == "vuln":
-                    source_code = m.source_code_before
+                    try:
+                        source_code = m.source_code_before
+                    except:
+                        source_code = None
 
                     if source_code is None or method.name == "(anonymous)":
                         counter.update(
@@ -697,7 +700,10 @@ def extract_functions(
                         source_code, method.start_line, method.end_line
                     )
                 elif label == "non-vuln":
-                    source_code = m.source_code
+                    try:
+                        source_code = m.source_code
+                    except:
+                        source_code = None
 
                     if source_code is None or method.name == "(anonymous)":
                         counter.update(
