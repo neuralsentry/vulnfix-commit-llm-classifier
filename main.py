@@ -626,21 +626,33 @@ def extract_functions(
                 repo_name = os.path.basename(git_repo.working_dir)
                 num_vuln_functions_extracted = table_data[repo_name]["vuln"]
                 num_non_vuln_functions_extracted = table_data[repo_name]["non-vuln"]
-                if (
-                    max_vuln_per_repo is not None
-                    and label == "vuln"
-                    and num_vuln_functions_extracted >= max_vuln_per_repo
-                ):
-                    counter.update(
-                        ignored_commits_from_max_vuln_per_repo_count,
-                        advance=1,
-                        visible=True,
-                    )
-                    summary_progress.update(
-                        extraction_task,
-                        advance=1,
-                    )
-                    continue
+
+                if label == "vuln":
+                    if extract_nonvuln_from_vulnfix:
+                        if (max_vuln_per_repo is not None and num_vuln_functions_extracted >= max_vuln_per_repo) and (
+                            max_non_vuln_per_repo is not None and num_non_vuln_functions_extracted >= max_non_vuln_per_repo
+                        ):
+                            counter.update(
+                                ignored_commits_from_max_non_vuln_per_repo_count,
+                                advance=1,
+                                visible=True,
+                            )
+                            summary_progress.update(
+                                extraction_task,
+                                advance=1,
+                            )
+                            continue
+                    elif max_vuln_per_repo is not None and num_vuln_functions_extracted >= max_vuln_per_repo:
+                        counter.update(
+                            ignored_commits_from_max_vuln_per_repo_count,
+                            advance=1,
+                            visible=True,
+                        )
+                        summary_progress.update(
+                            extraction_task,
+                            advance=1,
+                        )
+                        continue
 
                 if (
                     max_non_vuln_per_repo is not None
@@ -711,6 +723,22 @@ def extract_functions(
                     continue
 
                 for function, _label in functions:
+                    num_vuln_functions_extracted = table_data[repo_name]["vuln"]
+                    if (
+                        _label == 1
+                        and max_vuln_per_repo is not None
+                        and num_vuln_functions_extracted + 1 > max_vuln_per_repo
+                    ):
+                        continue
+
+                    num_non_vuln_functions_extracted = table_data[repo_name]["non-vuln"]
+                    if (
+                        _label == 0
+                        and max_non_vuln_per_repo is not None
+                        and num_non_vuln_functions_extracted + 1 > max_non_vuln_per_repo
+                    ):
+                        continue
+
                     try:
                         source_code = (
                             f.source_code if _label == 0 else f.source_code_before
@@ -745,33 +773,6 @@ def extract_functions(
                             visible=True,
                         )
                         continue
-
-
-                    if (
-                        max_vuln_per_repo is not None
-                        and _label == 1
-                        and num_vuln_functions_extracted + 1 > max_vuln_per_repo
-                    ):
-                        counter.update(
-                            ignored_commits_from_max_vuln_per_repo_count,
-                            advance=1,
-                            visible=True,
-                        )
-                        summary_progress.update(extraction_task, advance=1)
-                        break
-
-                    if (
-                        max_non_vuln_per_repo is not None
-                        and _label == 0
-                        and num_non_vuln_functions_extracted + 1 > max_non_vuln_per_repo
-                    ):
-                        counter.update(
-                            ignored_commits_from_max_vuln_per_repo_count,
-                            advance=1,
-                            visible=True,
-                        )
-                        summary_progress.update(extraction_task, advance=1)
-                        break
 
                     commit_data = df.iloc[i]
                     path = f.old_path if _label == 1 else f.new_path
