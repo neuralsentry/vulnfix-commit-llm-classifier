@@ -427,11 +427,12 @@ def extract_functions(
     ),
     batch_size: int = 64,
     assume_all_vulnerable: bool = typer.Option(
-        True, help="If disabled, will only extract commits with one function modified"
+        True,
+        help="If disabled, will only extract commits with one function modified. This method is used in Devign.",
     ),
     extract_nonvuln_from_vulnfix: bool = typer.Option(
         False,
-        help="If enabled, extract all non-modified functions in vulnfix commits as non-vuln",
+        help="If enabled, extract all non-modified functions in vulnfix commits as non-vuln. This is how vulnfix-only datasets extract non-vuln functions, such as BigVul.",
     ),
     include_file: bool = typer.Option(
         False, help="If enabled, will include the file code in the output"
@@ -454,6 +455,12 @@ def extract_functions(
 
     **Must be run on `classify` output.**
     """
+    if not assume_all_vulnerable and extract_nonvuln_from_vulnfix:
+        print(
+            "[!] Cannot use `--extract-nonvuln-from-vulnfix` with `--not-assume-all-vulnerable`"
+        )
+        raise typer.Exit(code=1)
+
     if (vulnfix_threshold and not non_vulnfix_threshold) or (
         non_vulnfix_threshold and not vulnfix_threshold
     ):
@@ -667,6 +674,7 @@ def extract_functions(
                 continue
 
             methods: list[Method] = []
+            unmodified_methods: list[Method] = []
             for m in commit.modified_files:
                 ext = os.path.splitext(m.filename)[1]
 
@@ -677,6 +685,15 @@ def extract_functions(
 
                 if label == "vuln":
                     methods.extend(methods_before)
+
+                    if extract_nonvuln_from_vulnfix:
+                        unmodified_methods.extend(
+                            [
+                                method
+                                for method in m.methods_before
+                                if method not in methods_before
+                            ]
+                        )
 
                 elif label == "non-vuln":
                     methods.extend(methods_after)
@@ -693,12 +710,12 @@ def extract_functions(
                         counter.update(
                             ignored_anonymous_functions_count, advance=1, visible=True
                         )
-                        summary_progress.update(extraction_task, advance=1)
                         continue
 
                     function_code = get_method_code(
                         source_code, method.start_line, method.end_line
                     )
+
                 elif label == "non-vuln":
                     try:
                         source_code = m.source_code
@@ -709,7 +726,6 @@ def extract_functions(
                         counter.update(
                             ignored_anonymous_functions_count, advance=1, visible=True
                         )
-                        summary_progress.update(extraction_task, advance=1)
                         continue
 
                     function_code = get_method_code(
@@ -720,7 +736,6 @@ def extract_functions(
                     counter.update(
                         failed_extract_functions_count, advance=1, visible=True
                     )
-                    summary_progress.update(extraction_task, advance=1)
                     continue
 
                 path = m.old_path if label == "vuln" else m.new_path
@@ -750,6 +765,60 @@ def extract_functions(
                         "commit_url": row["commit_url"],
                         "date": commit.committer_date,
                         "file_url": file_url,
+                        "from_modified_function": True,
+                    }
+                )
+
+            unmodified_functions = []
+            for method in unmodified_methods:
+                try:
+                    source_code = m.source_code_before
+                except:
+                    source_code = None
+
+                if source_code is None or method.name == "(anonymous)":
+                    counter.update(
+                        ignored_anonymous_functions_count, advance=1, visible=True
+                    )
+                    continue
+
+                function_code = get_method_code(
+                    source_code, method.start_line, method.end_line
+                )
+
+                if not function_code:
+                    counter.update(
+                        failed_extract_functions_count, advance=1, visible=True
+                    )
+                    continue
+
+                path = m.old_path
+                file_url = row["repo_url"] + "/blob/" + row["commit_hash"] + "/" + path
+                if numeric_labels:
+                    label_ = 0
+                else:
+                    label_ = "non-vuln"
+                unmodified_functions.append(
+                    {
+                        "labels": label_,
+                        "preds": [row["non-vulnfix"], row["vulnfix"]],
+                        "name": method.name,
+                        "symbol": method.long_name,
+                        "parameters": method.parameters,
+                        "start_line": method.start_line,
+                        "end_line": method.end_line,
+                        "function": function_code,
+                        "filename": m.filename,
+                        "path": path,
+                        "source_code": source_code,
+                        "token_count": method.token_count,
+                        "repo_url": row["repo_url"],
+                        "commit_msg": row["commit_msg"],
+                        "commit_hash": row["commit_hash"],
+                        "commit_url": row["commit_url"],
+                        "date": commit.committer_date,
+                        "file_url": file_url,
+                        "from_modified_function": False,
                     }
                 )
 
@@ -777,7 +846,17 @@ def extract_functions(
                 )
                 table_data[repo_name]["non-vuln"] += len(functions)
 
+            if len(unmodified_functions) > 0:
+                counter.update(
+                    extracted_non_vuln_functions_count,
+                    advance=len(unmodified_functions),
+                    visible=True,
+                )
+                table_data[repo_name]["non-vuln"] += len(unmodified_functions)
+
             batch = pd.concat([batch, pd.DataFrame(functions)])
+            if unmodified_functions:
+                batch = pd.concat([batch, pd.DataFrame(unmodified_functions)])
             counter.update(extracted_commits_count, advance=1)
             summary_progress.update(extraction_task, advance=1)
 
