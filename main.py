@@ -777,7 +777,7 @@ def extract_functions(
                     commit_data = df.iloc[i]
                     path = f.old_path if _label == 1 else f.new_path
                     commit_url = commit_data["commit_url"]
-                    function_url = f"{repo_url}/blob/{commit.hash}/path/{path}#L{start_line}-L{end_line}"
+                    function_url = f"{repo_url}/blob/{commit.hash}/{path}#L{start_line}-L{end_line}"
 
                     batch = pd.concat(
                         [
