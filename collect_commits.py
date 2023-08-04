@@ -14,7 +14,7 @@ def get_method_code(source_code, start_line, end_line):
         return None
 
 
-def changed_methods_both(file) -> tuple[Method, Method]:
+def changed_methods_both(file) -> tuple[list[Method], list[Method]]:
     """
     Return the list of methods that were changed.
     :return: list of methods
