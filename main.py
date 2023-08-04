@@ -41,11 +41,7 @@ from utils import (
     clone_repos,
     pull_repos,
 )
-from function_extraction import (
-    get_hunk_headers_function,
-    find_function,
-    get_function_source,
-)
+
 from collect_commits import get_method_code, changed_methods_both
 
 warnings.filterwarnings("ignore", category=UserWarning, module="optimum")
@@ -584,7 +580,7 @@ def extract_functions(
             unit="functions",
         )
 
-        index = clang.cindex.Index.create()
+
         batch = pd.DataFrame()
         header = True
         for i, row in df.iterrows():
