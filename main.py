@@ -687,7 +687,7 @@ def extract_functions(
 
                     if label == "vuln":
                         functions.extend(
-                            [(function, 1) for function in modified_functions_before]
+                            [(function, 1, f) for function in modified_functions_before]
                         )
 
                         if (
@@ -701,13 +701,13 @@ def extract_functions(
                             ]
                             functions.extend(
                                 [
-                                    (function, 0)
+                                    (function, 0, f)
                                     for function in unmodified_functions_before
                                 ]
                             )
                     elif label == "non-vuln":
                         functions.extend(
-                            [(function, 0) for function in modified_functions_after]
+                            [(function, 0, f) for function in modified_functions_after]
                         )
 
                 if not assume_all_vulnerable and len(functions) > 1:
@@ -722,7 +722,7 @@ def extract_functions(
                     summary_progress.update(extraction_task, advance=1)
                     continue
 
-                for function, _label in functions:
+                for function, _label, f in functions:
                     num_vuln_functions_extracted = table_data[repo_name]["vuln"]
                     if (
                         _label == 1
