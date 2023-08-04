@@ -445,6 +445,9 @@ def extract_functions(
     numeric_labels: bool = typer.Option(
         False, help="If enabled, will use numeric labels instead of strings"
     ),
+    num_workers: int = typer.Option(
+        0, help="Number of workers to use for extracting functions"
+    ),
 ):
     """
     Extract functions from classified commits.
@@ -509,10 +512,10 @@ def extract_functions(
             }
 
         extraction_task = summary_progress.add_task(
-            "[red]Extracting Functions...", total=len(df), unit="commits"
+            "[red]Extracting Functions from Commits...", total=len(df), unit="commits"
         )
         extracted_commits_count = counter.add_task(
-            f"[+] Extracted commits",
+            f"[+] Successfully extracted from commits",
             total=len(df),
             unit="commits",
         )
@@ -573,288 +576,264 @@ def extract_functions(
             visible=False,
             unit="functions",
         )
+        failed_extracting_function_file_source_code = counter.add_task(
+            f"[-] Failed extracting function's file source code",
+            total=0,
+            visible=False,
+            unit="functions",
+        )
+        failed_extracting_function_source_code = counter.add_task(
+            f"[-] Failed extracting function source code",
+            total=0,
+            visible=False,
+            unit="functions",
+        )
         ignored_anonymous_functions_count = counter.add_task(
             f"[-] Ignored anonymous functions",
             total=0,
             visible=False,
             unit="functions",
         )
+        commits_grouped_by_repo = df.groupby("repo_url")
+        dfs = [group for _, group in commits_grouped_by_repo]
 
-
-        batch = pd.DataFrame()
         header = True
-        for i, row in df.iterrows():
-            if len(batch) >= batch_size or (i + 1 == len(df) and len(batch) > 0):
-                functions_df = pd.DataFrame(batch)
-
-                if not include_file:
-                    functions_df = functions_df.drop(columns=["source_code"])
-
-                functions_df.to_csv(
-                    output,
-                    mode="a",
-                    index=False,
-                    header=header,
-                )
-                header = False
-
-                batch = pd.DataFrame()
-
-            repo = repos[row["repo_url"]]
-            repo_name = os.path.basename(repo.working_dir)
-
-            label = ""
-            # Determine label
-            if vulnfix_threshold and non_vulnfix_threshold:
-                preds = [row["non-vulnfix"], row["vulnfix"]]
-
-                if preds[0] >= non_vulnfix_threshold:
-                    label = "non-vuln"
-                elif preds[1] >= vulnfix_threshold:
-                    label = "vuln"
-                # ignore commits outside thresholds
-                else:
-                    counter.update(outside_threshold_count, advance=1, visible=True)
-                    summary_progress.update(extraction_task, advance=1)
-                    continue
-            else:
-                print(
-                    "[!] Not implemented yet. Must specify both `--vulnfix-threshold` and `--non-vulnfix-threshold`"
-                )
-                raise typer.Exit(code=1)
-
-            num_vuln_functions = table_data[repo_name]["vuln"]
-            num_non_vuln_functions = table_data[repo_name]["non-vuln"]
-
-            if (
-                max_vuln_per_repo
-                and label == "vuln"
-                and num_vuln_functions >= max_vuln_per_repo
-            ):
-                counter.update(
-                    ignored_commits_from_max_vuln_per_repo_count,
-                    advance=1,
-                    visible=True,
-                )
-                summary_progress.update(extraction_task, advance=1)
-                continue
-            if (
-                max_non_vuln_per_repo
-                and label == "non-vuln"
-                and num_non_vuln_functions >= max_non_vuln_per_repo
-            ):
-                counter.update(
-                    ignored_commits_from_max_non_vuln_per_repo_count,
-                    advance=1,
-                    visible=True,
-                )
-                summary_progress.update(extraction_task, advance=1)
-                continue
-
-            commit = list(
-                Repository(
-                    repo.working_dir, single=row["commit_hash"]
-                ).traverse_commits()
+        for df in dfs:
+            repo_url = df.iloc[0]["repo_url"]
+            git_repo = repos[repo_url]
+            pydriller_repo = Repository(
+                git_repo.working_dir,
+                only_commits=df["commit_hash"].tolist(),
+                num_workers=num_workers,
             )
 
-            if len(commit) == 0 or len(commit) > 1:
-                counter.update(failed_extract_commits_count, advance=1, visible=True)
-                summary_progress.update(extraction_task, advance=1)
-                continue
-
-            commit = commit[0]
-
-            if commit.merge:
-                counter.update(failed_extract_commits_count, advance=1, visible=True)
-                summary_progress.update(extraction_task, advance=1)
-                continue
-
-            methods: list[Method] = []
-            unmodified_methods: list[Method] = []
-            for m in commit.modified_files:
-                ext = os.path.splitext(m.filename)[1]
-
-                if ext not in [".c", ".cpp"]:
+            batch = pd.DataFrame()
+            for i, commit in enumerate(pydriller_repo.traverse_commits()):
+                label = ""
+                preds = [df.iloc[i]["non-vulnfix"], df.iloc[i]["vulnfix"]]
+                if preds[1] >= vulnfix_threshold:
+                    label = "vuln"
+                elif preds[0] >= non_vulnfix_threshold:
+                    label = "non-vuln"
+                else:
+                    counter.update(outside_threshold_count, advance=1, visible=True)
+                    summary_progress.update(
+                        extraction_task,
+                        advance=1,
+                    )
                     continue
 
-                methods_after, methods_before = changed_methods_both(m)
+                repo_name = os.path.basename(git_repo.working_dir)
+                num_vuln_functions_extracted = table_data[repo_name]["vuln"]
+                num_non_vuln_functions_extracted = table_data[repo_name]["non-vuln"]
+                if (
+                    max_vuln_per_repo is not None
+                    and label == "vuln"
+                    and num_vuln_functions_extracted >= max_vuln_per_repo
+                ):
+                    counter.update(
+                        ignored_commits_from_max_vuln_per_repo_count,
+                        advance=1,
+                        visible=True,
+                    )
+                    summary_progress.update(
+                        extraction_task,
+                        advance=1,
+                    )
+                    continue
 
-                if label == "vuln":
-                    methods.extend(methods_before)
+                if (
+                    max_non_vuln_per_repo is not None
+                    and label == "non-vuln"
+                    and num_non_vuln_functions_extracted >= max_non_vuln_per_repo
+                ):
+                    counter.update(
+                        ignored_commits_from_max_non_vuln_per_repo_count,
+                        advance=1,
+                        visible=True,
+                    )
+                    summary_progress.update(extraction_task, advance=1)
+                    continue
 
-                    if extract_nonvuln_from_vulnfix:
-                        unmodified_methods.extend(
-                            [
-                                method
-                                for method in m.methods_before
-                                if method not in methods_before
+                if commit.merge:
+                    counter.update(
+                        failed_extract_commits_count, advance=1, visible=True
+                    )
+                    summary_progress.update(extraction_task, advance=1)
+                    continue
+
+                functions: list[tuple[Method, int]] = []
+                for f in commit.modified_files:
+                    ext = os.path.splitext(f.filename)[1]
+                    if ext not in [".c", ".cpp"]:
+                        continue
+
+                    (
+                        modified_functions_after,
+                        modified_functions_before,
+                    ) = changed_methods_both(f)
+
+                    if label == "vuln":
+                        functions.extend(
+                            [(function, 1) for function in modified_functions_before]
+                        )
+
+                        if (
+                            extract_nonvuln_from_vulnfix
+                            and len(modified_functions_before) > 0
+                        ):
+                            unmodified_functions_before = [
+                                function
+                                for function in f.methods_before
+                                if function not in modified_functions_before
                             ]
+                            functions.extend(
+                                [
+                                    (function, 0)
+                                    for function in unmodified_functions_before
+                                ]
+                            )
+                    elif label == "non-vuln":
+                        functions.extend(
+                            [(function, 0) for function in modified_functions_after]
                         )
 
-                elif label == "non-vuln":
-                    methods.extend(methods_after)
+                if not assume_all_vulnerable and len(functions) > 1:
+                    counter.update(
+                        more_than_one_function_count, advance=1, visible=True
+                    )
+                    summary_progress.update(extraction_task, advance=1)
+                    continue
 
-            functions = []
-            for method in methods:
-                if label == "vuln":
+                if len(functions) == 0:
+                    counter.update(no_functions_found_count, advance=1, visible=True)
+                    summary_progress.update(extraction_task, advance=1)
+                    continue
+
+                for function, _label in functions:
                     try:
-                        source_code = m.source_code_before
+                        source_code = (
+                            f.source_code if _label == 0 else f.source_code_before
+                        )
                     except:
                         source_code = None
 
-                    if source_code is None or method.name == "(anonymous)":
+                    if source_code is None:
                         counter.update(
-                            ignored_anonymous_functions_count, advance=1, visible=True
+                            failed_extracting_function_file_source_code,
+                            advance=1,
+                            visible=True,
                         )
                         continue
 
-                    function_code = get_method_code(
-                        source_code, method.start_line, method.end_line
-                    )
-
-                elif label == "non-vuln":
-                    try:
-                        source_code = m.source_code
-                    except:
-                        source_code = None
-
-                    if source_code is None or method.name == "(anonymous)":
+                    if function.name == "(anonymous)":
                         counter.update(
-                            ignored_anonymous_functions_count, advance=1, visible=True
+                            ignored_anonymous_functions_count,
+                            advance=1,
+                            visible=True,
                         )
                         continue
 
-                    function_code = get_method_code(
-                        source_code, method.start_line, method.end_line
+                    start_line = function.start_line
+                    end_line = function.end_line
+                    function_code = get_method_code(source_code, start_line, end_line)
+
+                    if function_code is None:
+                        counter.update(
+                            failed_extracting_function_source_code,
+                            advance=1,
+                            visible=True,
+                        )
+                        continue
+
+
+                    if (
+                        max_vuln_per_repo is not None
+                        and _label == 1
+                        and num_vuln_functions_extracted + 1 > max_vuln_per_repo
+                    ):
+                        counter.update(
+                            ignored_commits_from_max_vuln_per_repo_count,
+                            advance=1,
+                            visible=True,
+                        )
+                        summary_progress.update(extraction_task, advance=1)
+                        break
+
+                    if (
+                        max_non_vuln_per_repo is not None
+                        and _label == 0
+                        and num_non_vuln_functions_extracted + 1 > max_non_vuln_per_repo
+                    ):
+                        counter.update(
+                            ignored_commits_from_max_vuln_per_repo_count,
+                            advance=1,
+                            visible=True,
+                        )
+                        summary_progress.update(extraction_task, advance=1)
+                        break
+
+                    commit_data = df.iloc[i]
+                    path = f.old_path if _label == 1 else f.new_path
+                    commit_url = commit_data["commit_url"]
+                    function_url = f"{repo_url}/blob/{commit.hash}/path/{path}#L{start_line}-L{end_line}"
+
+                    batch = pd.concat(
+                        [
+                            batch,
+                            pd.DataFrame(
+                                [
+                                    {
+                                        "labels": _label
+                                        if numeric_labels
+                                        else ("non-vuln", "vuln")[_label],
+                                        "preds": preds,
+                                        "repo_url": repo_url,
+                                        "commit_url": commit_url,
+                                        "function_url": function_url,
+                                        "function": function_code,
+                                        "commit_msg": commit.msg,
+                                        "commit_hash": commit.hash,
+                                        "date": commit.author_date,
+                                        "name": function.name,
+                                        "symbol": function.long_name,
+                                        "parameters": function.parameters,
+                                        "start_line": start_line,
+                                        "end_line": end_line,
+                                        "filename": f.filename,
+                                        "path": path,
+                                        "non_vuln_from_vulnfix": _label == 0
+                                        and label == "vuln",
+                                    }
+                                ]
+                            ),
+                        ]
                     )
 
-                if not function_code:
                     counter.update(
-                        failed_extract_functions_count, advance=1, visible=True
+                        extracted_vuln_functions_count
+                        if _label == 1
+                        else extracted_non_vuln_functions_count,
+                        advance=1,
+                        visible=True,
                     )
-                    continue
+                    table_data[repo_name][("non-vuln", "vuln")[_label]] += 1
 
-                path = m.old_path if label == "vuln" else m.new_path
-                file_url = row["repo_url"] + "/blob/" + row["commit_hash"] + "/" + path
-                if numeric_labels:
-                    label_ = 1 if label == "vuln" else 0
-                else:
-                    label_ = label
+                    is_batch_full = len(batch) >= batch_size
+                    is_last_batch_occupied = i + 1 == len(df) and len(batch) > 0
+                    if is_batch_full or is_last_batch_occupied:
+                        batch.to_csv(
+                            output,
+                            mode="a",
+                            index=False,
+                            header=header,
+                        )
 
-                functions.append(
-                    {
-                        "labels": label_,
-                        "preds": [row["non-vulnfix"], row["vulnfix"]],
-                        "name": method.name,
-                        "symbol": method.long_name,
-                        "parameters": method.parameters,
-                        "start_line": method.start_line,
-                        "end_line": method.end_line,
-                        "function": function_code,
-                        "filename": m.filename,
-                        "path": path,
-                        "source_code": source_code,
-                        "token_count": method.token_count,
-                        "repo_url": row["repo_url"],
-                        "commit_msg": row["commit_msg"],
-                        "commit_hash": row["commit_hash"],
-                        "commit_url": row["commit_url"],
-                        "date": commit.committer_date,
-                        "file_url": file_url,
-                        "from_modified_function": True,
-                    }
-                )
+                        header = False
+                        batch = pd.DataFrame()
 
-            unmodified_functions = []
-            for method in unmodified_methods:
-                try:
-                    source_code = m.source_code_before
-                except:
-                    source_code = None
-
-                if source_code is None or method.name == "(anonymous)":
-                    counter.update(
-                        ignored_anonymous_functions_count, advance=1, visible=True
-                    )
-                    continue
-
-                function_code = get_method_code(
-                    source_code, method.start_line, method.end_line
-                )
-
-                if not function_code:
-                    counter.update(
-                        failed_extract_functions_count, advance=1, visible=True
-                    )
-                    continue
-
-                path = m.old_path
-                file_url = row["repo_url"] + "/blob/" + row["commit_hash"] + "/" + path
-                if numeric_labels:
-                    label_ = 0
-                else:
-                    label_ = "non-vuln"
-                unmodified_functions.append(
-                    {
-                        "labels": label_,
-                        "preds": [row["non-vulnfix"], row["vulnfix"]],
-                        "name": method.name,
-                        "symbol": method.long_name,
-                        "parameters": method.parameters,
-                        "start_line": method.start_line,
-                        "end_line": method.end_line,
-                        "function": function_code,
-                        "filename": m.filename,
-                        "path": path,
-                        "source_code": source_code,
-                        "token_count": method.token_count,
-                        "repo_url": row["repo_url"],
-                        "commit_msg": row["commit_msg"],
-                        "commit_hash": row["commit_hash"],
-                        "commit_url": row["commit_url"],
-                        "date": commit.committer_date,
-                        "file_url": file_url,
-                        "from_modified_function": False,
-                    }
-                )
-
-            if not assume_all_vulnerable and not len(functions) == 1:
-                counter.update(more_than_one_function_count, advance=1, visible=True)
+                counter.update(extracted_commits_count, advance=1, visible=True)
                 summary_progress.update(extraction_task, advance=1)
-                continue
-
-            if len(functions) == 0:
-                counter.update(no_functions_found_count, advance=1, visible=True)
-                summary_progress.update(extraction_task, advance=1)
-                continue
-
-            if label == "vuln":
-                counter.update(
-                    extracted_vuln_functions_count, advance=len(functions), visible=True
-                )
-                table_data[repo_name]["vuln"] += len(functions)
-
-            elif label == "non-vuln":
-                counter.update(
-                    extracted_non_vuln_functions_count,
-                    advance=len(functions),
-                    visible=True,
-                )
-                table_data[repo_name]["non-vuln"] += len(functions)
-
-            if len(unmodified_functions) > 0:
-                counter.update(
-                    extracted_non_vuln_functions_count,
-                    advance=len(unmodified_functions),
-                    visible=True,
-                )
-                table_data[repo_name]["non-vuln"] += len(unmodified_functions)
-
-            batch = pd.concat([batch, pd.DataFrame(functions)])
-            if unmodified_functions:
-                batch = pd.concat([batch, pd.DataFrame(unmodified_functions)])
-            counter.update(extracted_commits_count, advance=1)
-            summary_progress.update(extraction_task, advance=1)
 
     table = Table(show_header=True, header_style="red")
 
