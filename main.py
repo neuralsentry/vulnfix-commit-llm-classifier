@@ -609,8 +609,22 @@ def extract_functions(
 
             batch = pd.DataFrame()
             for i, commit in enumerate(pydriller_repo.traverse_commits()):
+                row = df[df["commit_hash"] == commit.hash]
+
+                if row.empty:
+                    counter.update(
+                        failed_extract_commits_count, advance=1, visible=True
+                    )
+                    summary_progress.update(
+                        extraction_task,
+                        advance=1,
+                    )
+                    continue
+
+                row = row.iloc[0]
+
                 label = ""
-                preds = [df.iloc[i]["non-vulnfix"], df.iloc[i]["vulnfix"]]
+                preds = [row["non-vulnfix"], row["vulnfix"]]
                 if preds[1] >= vulnfix_threshold:
                     label = "vuln"
                 elif preds[0] >= non_vulnfix_threshold:
@@ -629,8 +643,13 @@ def extract_functions(
 
                 if label == "vuln":
                     if extract_nonvuln_from_vulnfix:
-                        if (max_vuln_per_repo is not None and num_vuln_functions_extracted >= max_vuln_per_repo) and (
-                            max_non_vuln_per_repo is not None and num_non_vuln_functions_extracted >= max_non_vuln_per_repo
+                        if (
+                            max_vuln_per_repo is not None
+                            and num_vuln_functions_extracted >= max_vuln_per_repo
+                        ) and (
+                            max_non_vuln_per_repo is not None
+                            and num_non_vuln_functions_extracted
+                            >= max_non_vuln_per_repo
                         ):
                             counter.update(
                                 ignored_commits_from_max_non_vuln_per_repo_count,
@@ -642,7 +661,10 @@ def extract_functions(
                                 advance=1,
                             )
                             continue
-                    elif max_vuln_per_repo is not None and num_vuln_functions_extracted >= max_vuln_per_repo:
+                    elif (
+                        max_vuln_per_repo is not None
+                        and num_vuln_functions_extracted >= max_vuln_per_repo
+                    ):
                         counter.update(
                             ignored_commits_from_max_vuln_per_repo_count,
                             advance=1,
@@ -687,7 +709,10 @@ def extract_functions(
 
                     if label == "vuln":
                         functions.extend(
-                            [(function, 1, f) for function in modified_functions_before]
+                            [
+                                (function, 1, f, False)
+                                for function in modified_functions_before
+                            ]
                         )
 
                         if (
@@ -701,13 +726,16 @@ def extract_functions(
                             ]
                             functions.extend(
                                 [
-                                    (function, 0, f)
+                                    (function, 0, f, True)
                                     for function in unmodified_functions_before
                                 ]
                             )
                     elif label == "non-vuln":
                         functions.extend(
-                            [(function, 0, f) for function in modified_functions_after]
+                            [
+                                (function, 0, f, False)
+                                for function in modified_functions_after
+                            ]
                         )
 
                 if not assume_all_vulnerable and len(functions) > 1:
@@ -722,7 +750,7 @@ def extract_functions(
                     summary_progress.update(extraction_task, advance=1)
                     continue
 
-                for function, _label, f in functions:
+                for function, _label, f, is_non_vuln_from_vfc in functions:
                     num_vuln_functions_extracted = table_data[repo_name]["vuln"]
                     if (
                         _label == 1
@@ -740,9 +768,10 @@ def extract_functions(
                         continue
 
                     try:
-                        source_code = (
-                            f.source_code if _label == 0 else f.source_code_before
-                        )
+                        if _label == 0 and not is_non_vuln_from_vfc:
+                            source_code = f.source_code
+                        else:
+                            source_code = f.source_code_before
                     except:
                         source_code = None
 
@@ -774,10 +803,10 @@ def extract_functions(
                         )
                         continue
 
-                    commit_data = df.iloc[i]
+                    parent = commit.parents[0] if len(commit.parents) > 0 else None
                     path = f.old_path if _label == 1 else f.new_path
-                    commit_url = commit_data["commit_url"]
-                    function_url = f"{repo_url}/blob/{commit.hash}/{path}#L{start_line}-L{end_line}"
+                    commit_url = row["commit_url"]
+                    function_url = f"{repo_url}/blob/{parent if _label == 1 else commit.hash}/{f.new_path}#L{start_line}-L{end_line}"
 
                     batch = pd.concat(
                         [
