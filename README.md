@@ -1,8 +1,8 @@
 # ![NeuralSentry Logo](.github/img/neuralsentry-full-light.png)
 
-## commit-bugfix-classifier
+## vulnfix-commit-llm-classifier
 
-`commit-bugfix-classifier` is a tool that clones remote Git repositories, extracts commit information, and classifies commits using euralSentry's [bugfix classification model](https://huggingface.co/neuralsentry/starencoder-git-commit-bugfix-classification).
+`vulnfix-commit-llm-classifier` is a tool that clones remote Git repositories, extracts commit information, and classifies commits using NeuralSentry's [vulnerability-fix commit (VFC) classification model](https://huggingface.co/neuralsentry/vulnfixClassification-StarEncoder-DCM-Balanced).
 ![Demo Gif](.github/img/demo.gif)
 
 ## Installation
