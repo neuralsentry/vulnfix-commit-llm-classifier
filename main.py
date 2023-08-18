@@ -120,11 +120,11 @@ def main(
         help="Directory to clone repositories to.",
     ),
     checkpoint: str = typer.Option(
-        "neuralsentry/starencoder-vulnfix-classification-balanced",
+        "neuralsentry/vulnfixClassification-StarEncoder-DCMB",
         help="Model checkpoint to use.",
     ),
     revision: str = typer.Option(
-        None,
+        "a29bdd79be991a9f68374ef1fa51bbd4995ab6ba",
         help="Revision of the model to use. Change this if you want to use a different model version than the latest.",
     ),
     hf_cache_dir: str = typer.Option(
@@ -136,6 +136,10 @@ def main(
         "--num-workers",
         min=1,
         help="Number of workers to use for cpu-bound tasks.",
+    ),
+    skip_pull: bool = typer.Option(
+        False,
+        help="Skip pulling repositories if they already exist.",
     ),
 ):
     """
@@ -196,16 +200,18 @@ def main(
             summary_progress=summary_progress,
             task_progress=task_progress,
         )
-
-        pulled_repos = pull_repos(
-            repos_to_pull,
-            num_workers,
-            summary_progress=summary_progress,
-            task_progress=task_progress,
-        )
-
         repos.extend(cloned_repos)
-        repos.extend(pulled_repos)
+
+        if not skip_pull:
+            pulled_repos = pull_repos(
+                repos_to_pull,
+                num_workers,
+                summary_progress=summary_progress,
+                task_progress=task_progress,
+            )
+            repos.extend(pulled_repos)
+        else:
+            repos.extend(repos_to_pull)
 
     print("[red]\nClassifying using the following configuration:")
     if before:
@@ -213,8 +219,11 @@ def main(
     if after:
         print("After:", after)
     print("GPU/CPU:", torch.cuda.get_device_name(0))
-    print("Vulnfix Threshold:", vulnfix_threshold)
-    print("Non-vulnfix Threshold:", non_vulnfix_threshold)
+    print("Vulnfix Threshold:", vulnfix_threshold if vulnfix_threshold else 0.5)
+    print(
+        "Non-vulnfix Threshold:",
+        non_vulnfix_threshold if non_vulnfix_threshold else 0.5,
+    )
     print("Num Workers:", num_workers)
     print("Batch Size:", batch_size)
     print()
