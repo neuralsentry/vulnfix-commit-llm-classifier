@@ -1,6 +1,12 @@
-# ![NeuralSentry Logo](.github/img/neuralsentry-full-light.png)
+![NeuralSentry Logo](.github/img/neuralsentry-full-light.png)
 
-## vulnfix-commit-llm-classifier
+# vulnfix-commit-llm-classifier
+
+> **Note**
+> 
+> Find out more about the project here:
+> 
+> https://sopossible.sp.edu.sg/student-life/annual-events/sp-industry-innovation/spii2024/digital-transformation
 
 `vulnfix-commit-llm-classifier` is a tool that clones remote Git repositories, extracts commit information, and classifies commits using NeuralSentry's [vulnerability-fix commit (VFC) classification model](https://huggingface.co/neuralsentry/vulnfixClassification-StarEncoder-DCM-Balanced).
 ![Demo Gif](.github/img/demo.gif)
